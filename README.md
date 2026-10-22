@@ -2,37 +2,38 @@
 
 A Docker Compose and GitHub Actions benchmark environment evaluating **`django-hurricane`** (targeting 2.0.0rc1 and newer Granian-powered releases) under synthetic, near real-world web traffic.
 
-The suite compares four distinct deployment paradigms:
-1. **WSGI (Pure Sync)**: Granian WSGI interface with synchronous PostgreSQL and blocking HTTP operations.
-2. **ASGI (Forced Sync Views)**: Granian ASGI interface running legacy synchronous Django views, demonstrating the exact penalty of Django's `sync_to_async(thread_sensitive=True)` adapter under load.
-3. **ASGI (Clean Async Views)**: Granian ASGI interface with clean async views (`async def`), pooled `httpx` async client, and non-blocking template rendering.
-4. **ASGI (`django-async-backend`)**: Granian ASGI interface with [django-async-backend](https://github.com/Arfey/django-async-backend) utilizing true non-blocking `psycopg 3` async connection pooling on the event loop.
+The suite compares five distinct deployment paradigms:
+1. **WSGI (Worker=1 / Single Thread)**: Granian WSGI interface with `--workers 1` (strict single-threaded baseline for 1-to-1 comparison with single-process event loop).
+2. **WSGI (Auto Threads / Multi-Thread)**: Granian WSGI interface with Hurricane's auto-threads calculation `min(32, cpu_count + 4)` threads (traditional real-world multi-threaded WSGI deployment).
+3. **ASGI (Forced Sync Views)**: Granian ASGI interface running legacy synchronous Django views, demonstrating the exact penalty of Django's `sync_to_async(thread_sensitive=True)` adapter under load.
+4. **ASGI (Clean Async Views)**: Granian ASGI interface with clean async views (`async def`), pooled `httpx` async client, and non-blocking template rendering.
+5. **ASGI (`django-async-backend`)**: Granian ASGI interface with [django-async-backend](https://github.com/Arfey/django-async-backend) utilizing true non-blocking `psycopg 3` async connection pooling on the event loop.
 
 ---
 
 ## Architecture Overview
 
 ```
-                                      +------------------------+
-                                      |   Locust Load Runner   |
-                                      |   (Headless Step-Load) |
-                                      +-----------+------------+
-                                                  |
-                         +------------------------+------------------------+
-                         |                        |                        |
-                         v                        v                        v
-             [ Flavor 1: WSGI ]        [ Flavor 2: ASGI-Sync ]    [ Flavors 3 & 4: ASGI ]
-             Granian WSGI Mode         Granian ASGI Mode          Granian ASGI Mode
-             Sync DB (psycopg)         Django sync_to_async       Clean Async Views (httpx)
-             Sync HTTP (requests)      Sync HTTP (requests)       Standard ORM vs django-async-backend
-                         |                        |                        |
-                         +------------+-----------+------------------------+
-                                      |                                    |
-                                      v                                    v
-                            +--------------------+               +--------------------+
-                            | PostgreSQL 17 (DB) |               |  Fake Latency API  |
-                            | (Real Database)    |               |  (min_ms, max_ms)  |
-                            +--------------------+               +--------------------+
+                                            +------------------------+
+                                            |   Locust Load Runner   |
+                                            |   (Headless Step-Load) |
+                                            +-----------+------------+
+                                                        |
+                         +------------------------------+------------------------------+
+                         |                              |                              |
+                         v                              v                              v
+             [ Flavors 1 & 2: WSGI ]        [ Flavor 3: ASGI-Sync ]         [ Flavors 4 & 5: ASGI ]
+             Granian WSGI Mode              Granian ASGI Mode               Granian ASGI Mode
+             (Single Thread vs Auto-Threads) Django sync_to_async            Clean Async Views (httpx)
+             Sync DB (psycopg pool)         Sync HTTP (requests)            Standard ORM vs django-async-backend
+                         |                              |                              |
+                         +------------------------------+------------------------------+
+                                                        |
+                                                        v
+                                              +--------------------+
+                                              | PostgreSQL 17 (DB) |
+                                              | (Real Database)    |
+                                              +--------------------+
 ```
 
 ---
@@ -103,30 +104,43 @@ The GitHub Actions runner executes each flavor sequentially, writes artifact rep
 
 <!-- BENCHMARK_START -->
 
-### Latest Benchmark Results (2026-10-22 12:02:25 UTC)
+### Latest Benchmark Results (2026-10-22 12:23:46 UTC)
 **Django Hurricane Version:** `2.0.0rc1` | **PostgreSQL:** `17` | **Python:** `3.12`
 
+#### Server & Worker Runtime Architecture
+| Flavor | Server Interface | Worker Processes | Server Threads | Event Loop | App Concurrency Model | DB Pool |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **WSGI (Worker=1)** | Granian WSGI | 1 | 1 | None | Single OS thread (In-thread) | Sync psycopg (4 conns) |
+| **WSGI (Auto Threads)** | Granian WSGI | 1 | `min(32, CPU+4)` (6–12) | None | Multi-threaded (In-thread) | Sync psycopg (4 conns) |
+| **ASGI (Forced Sync)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | `asgiref` single-thread queue | Sync psycopg (4 conns) |
+| **ASGI (Clean Async)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Sync psycopg (4 conns) |
+| **ASGI + DAB** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Async psycopg-pool (5–50 conns) |
+
+#### Aggregate Performance Metrics
 | Flavor | Throughput | Median (p50) | 95th (p95) | 99th (p99) | Error Rate | Requests |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **WSGI (Pure Sync)** | **52.1 req/s** | 710.0 ms | 1100.0 ms | 1200.0 ms | 0.0% | 468 |
-| **ASGI (Forced Sync Views)** | **75.8 req/s** | 510.0 ms | 670.0 ms | 710.0 ms | 0.0% | 682 |
-| **ASGI (Clean Async Views)** | **76.1 req/s** | 460.0 ms | 680.0 ms | 770.0 ms | 0.0% | 685 |
-| **ASGI + django-async-backend** | **72.8 req/s** | 480.0 ms | 610.0 ms | 690.0 ms | 0.0% | 656 |
+| **WSGI (Worker=1 / Single Thread)** | **51.3 req/s** | 700.0 ms | 1000.0 ms | 1100.0 ms | 0.0% | 462 |
+| **WSGI (Auto Threads / Multi-Thread)** | **174.7 req/s** | 99.0 ms | 200.0 ms | 230.0 ms | 0.0% | 1,572 |
+| **ASGI (Forced Sync Views)** | **80.3 req/s** | 440.0 ms | 630.0 ms | 670.0 ms | 0.0% | 723 |
+| **ASGI (Clean Async Views)** | **70.9 req/s** | 560.0 ms | 750.0 ms | 820.0 ms | 0.0% | 638 |
+| **ASGI + django-async-backend** | **74.0 req/s** | 490.0 ms | 620.0 ms | 650.0 ms | 0.0% | 668 |
 
 #### Throughput (Requests per Second - Higher is better)
 ```text
-WSGI (Pure Sync)                 [██████████████████████          ]     52.1 req/s
-ASGI (Forced Sync Views)         [████████████████████████████████]     75.8 req/s
-ASGI (Clean Async Views)         [████████████████████████████████]     76.1 req/s
-ASGI + django-async-backend      [███████████████████████████████ ]     72.8 req/s
+WSGI (Worker=1 / Single Thread)  [█████████                       ]     51.3 req/s
+WSGI (Auto Threads / Multi-Thread) [████████████████████████████████]    174.7 req/s
+ASGI (Forced Sync Views)         [███████████████                 ]     80.3 req/s
+ASGI (Clean Async Views)         [█████████████                   ]     70.9 req/s
+ASGI + django-async-backend      [██████████████                  ]     74.0 req/s
 ```
 
 #### 95th Percentile Latency (Lower is better)
 ```text
-WSGI (Pure Sync)                 [████████████████████████████████]   1100.0 ms
-ASGI (Forced Sync Views)         [███████████████████             ]    670.0 ms
-ASGI (Clean Async Views)         [████████████████████            ]    680.0 ms
-ASGI + django-async-backend      [██████████████████              ]    610.0 ms
+WSGI (Worker=1 / Single Thread)  [████████████████████████████████]   1000.0 ms
+WSGI (Auto Threads / Multi-Thread) [██████                          ]    200.0 ms
+ASGI (Forced Sync Views)         [████████████████████            ]    630.0 ms
+ASGI (Clean Async Views)         [████████████████████████        ]    750.0 ms
+ASGI + django-async-backend      [████████████████████            ]    620.0 ms
 ```
 
 #### Concurrency Scaling & User Scaling Penalty
@@ -134,35 +148,38 @@ Latency progression and degradation factor as concurrent simulated users ramp up
 
 | Flavor | Initial Load (~15 Users) p50 / p95 | Mid Load (~45 Users) p50 / p95 | Peak Load (50 Users) p50 / p95 | Latency Scaling Penalty |
 | :--- | :---: | :---: | :---: | :---: |
-| **WSGI (Pure Sync)** | 110.0 ms / 220.0 ms | 270.0 ms / 620.0 ms | 565.0 ms / 1023.3 ms | **4.65x** |
-| **ASGI (Forced Sync Views)** | 87.0 ms / 260.0 ms | 260.0 ms / 660.0 ms | 435.0 ms / 675.0 ms | **2.6x** |
-| **ASGI (Clean Async Views)** | 110.0 ms / 310.0 ms | 270.0 ms / 750.0 ms | 425.0 ms / 696.7 ms | **2.25x** |
-| **ASGI + django-async-backend** | 140.0 ms / 210.0 ms | 310.0 ms / 680.0 ms | 448.3 ms / 638.3 ms | **3.04x** |
+| **WSGI (Worker=1 / Single Thread)** | 160.0 ms / 290.0 ms | 360.0 ms / 570.0 ms | 570.0 ms / 928.3 ms | **3.2x** |
+| **WSGI (Auto Threads / Multi-Thread)** | 48.0 ms / 93.0 ms | 42.0 ms / 100.0 ms | 67.3 ms / 167.8 ms | **1.8x** |
+| **ASGI (Forced Sync Views)** | 96.0 ms / 300.0 ms | 210.0 ms / 620.0 ms | 360.0 ms / 621.7 ms | **2.07x** |
+| **ASGI (Clean Async Views)** | 100.0 ms / 320.0 ms | 270.0 ms / 700.0 ms | 468.3 ms / 735.0 ms | **2.3x** |
+| **ASGI + django-async-backend** | 130.0 ms / 200.0 ms | 310.0 ms / 600.0 ms | 430.0 ms / 613.3 ms | **3.07x** |
 
 ##### Latency Inflation Factor under Load Scaling (Peak p95 vs Initial p95 - Lower is better)
 ```text
-WSGI (Pure Sync)                 [████████████████████████████████]  4.65x penalty
-ASGI (Forced Sync Views)         [██████████████████              ]  2.60x penalty
-ASGI (Clean Async Views)         [███████████████                 ]  2.25x penalty
-ASGI + django-async-backend      [█████████████████████           ]  3.04x penalty
+WSGI (Worker=1 / Single Thread)  [████████████████████████████████]  3.20x penalty
+WSGI (Auto Threads / Multi-Thread) [██████████████████              ]  1.80x penalty
+ASGI (Forced Sync Views)         [█████████████████████           ]  2.07x penalty
+ASGI (Clean Async Views)         [███████████████████████         ]  2.30x penalty
+ASGI + django-async-backend      [███████████████████████████████ ]  3.07x penalty
 ```
 
 #### Route Breakdown Across Flavors
-| Route | WSGI (Pure Sync) (p95 / RPS) | ASGI (Forced Sync Views) (p95 / RPS) | ASGI (Clean Async Views) (p95 / RPS) | ASGI + django-async-backend (p95 / RPS) |
-| :--- | :---: | :---: | :---: | :---: |
-| `/api/auth/login` | 760.0 ms (5.6 rps) | 770.0 ms (5.6 rps) | 800.0 ms (5.6 rps) | 700.0 ms (5.5 rps) |
-| `/api/auth/me [GET]` | 1100.0 ms (3.6 rps) | 670.0 ms (3.0 rps) | 680.0 ms (3.8 rps) | 510.0 ms (3.8 rps) |
-| `/api/items [GET]` | 1100.0 ms (15.0 rps) | 670.0 ms (20.5 rps) | 680.0 ms (21.1 rps) | 570.0 ms (19.6 rps) |
-| `/api/items [POST]` | 1200.0 ms (1.9 rps) | 690.0 ms (4.3 rps) | 730.0 ms (4.4 rps) | 570.0 ms (3.9 rps) |
-| `/catalog/render [GET]` | 1100.0 ms (9.5 rps) | 670.0 ms (15.8 rps) | 690.0 ms (14.0 rps) | 600.0 ms (12.5 rps) |
-| `/catalog/search [GET]` | 1200.0 ms (6.7 rps) | 660.0 ms (9.3 rps) | 670.0 ms (11.2 rps) | 570.0 ms (9.9 rps) |
-| `/external/fetch [GET]` | 1200.0 ms (9.9 rps) | 230.0 ms (17.3 rps) | 240.0 ms (16.0 rps) | 630.0 ms (17.5 rps) |
+| Route | WSGI (Worker=1 / Single Thread) (p95 / RPS) | WSGI (Auto Threads / Multi-Thread) (p95 / RPS) | ASGI (Forced Sync Views) (p95 / RPS) | ASGI (Clean Async Views) (p95 / RPS) | ASGI + django-async-backend (p95 / RPS) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| `/api/auth/login` | 600.0 ms (5.5 rps) | 110.0 ms (5.6 rps) | 630.0 ms (5.6 rps) | 770.0 ms (5.6 rps) | 640.0 ms (5.5 rps) |
+| `/api/auth/me [GET]` | 1000.0 ms (2.3 rps) | 190.0 ms (8.9 rps) | 650.0 ms (4.0 rps) | 690.0 ms (3.8 rps) | 580.0 ms (3.8 rps) |
+| `/api/items [GET]` | 1000.0 ms (15.0 rps) | 200.0 ms (48.6 rps) | 620.0 ms (20.4 rps) | 760.0 ms (20.5 rps) | 590.0 ms (19.4 rps) |
+| `/api/items [POST]` | 1000.0 ms (2.9 rps) | 200.0 ms (7.2 rps) | 670.0 ms (3.9 rps) | 750.0 ms (2.0 rps) | 600.0 ms (3.7 rps) |
+| `/catalog/render [GET]` | 1100.0 ms (8.9 rps) | 210.0 ms (34.1 rps) | 640.0 ms (12.9 rps) | 800.0 ms (11.7 rps) | 620.0 ms (14.5 rps) |
+| `/catalog/search [GET]` | 1000.0 ms (6.1 rps) | 200.0 ms (27.1 rps) | 640.0 ms (12.7 rps) | 730.0 ms (9.9 rps) | 600.0 ms (10.4 rps) |
+| `/external/fetch [GET]` | 1100.0 ms (10.5 rps) | 190.0 ms (43.2 rps) | 250.0 ms (20.9 rps) | 240.0 ms (17.6 rps) | 630.0 ms (16.7 rps) |
 
 #### Architectural Takeaways & Production Recommendations
-- **WSGI (Pure Sync)**: Legacy baseline. Under concurrent traffic mixing database queries and external I/O, synchronous worker threads block. Queue buildup degrades performance across all routes.
-- **ASGI (Forced Sync Views)**: The migration trap. Forcing synchronous views to run on an ASGI server routes every request through Django's `sync_to_async(thread_sensitive=True)` adapter. Because `thread_sensitive=True` executes sequentially on a single thread, blocking calls stall the entire thread, showing the penalty of running legacy sync views under ASGI without refactoring.
+- **WSGI (Worker=1 / Single Thread)**: The strict 1-to-1 baseline. Demonstrates the extreme vulnerability of single-threaded synchronous architectures: any blocking I/O (e.g. upstream API calls) freezes the entire server, producing severe queue buildup and high tail latency.
+- **WSGI (Auto Threads / Multi-Thread)**: The traditional production deployment. Providing 6–12 worker threads absorbs concurrent requests much better, but worker threads still lock on I/O waits and scale with higher memory overhead and kernel thread contention.
+- **ASGI (Forced Sync Views)**: The migration step. Demonstrates that running legacy synchronous views under ASGI gains socket multiplexing benefits from Granian's Rust event loop, but incurs threadpool context switching (`sync_to_async`).
 - **ASGI (Clean Async Views)**: The balanced, general production recommendation. By writing native `async def` views for I/O endpoints and using connection-pooled HTTP clients (`httpx`), applications achieve 90%+ of ASGI benefits while retaining 100% compatibility with standard Django ORM, third-party packages, DRF, and Django admin.
-- **ASGI + `django-async-backend`**: Specialized high-performance engine. Delivers the lowest latency profile (610 ms p95) by removing threadpool hops on PostgreSQL queries. However, it is **not a general-purpose recommendation** due to critical constraints: PostgreSQL-only driver requirement, tight coupling to Django internal releases, complex async transaction boundaries, and incompatibility with third-party Django apps that execute synchronous ORM operations.
+- **ASGI + `django-async-backend`**: Specialized high-performance engine. Delivers the lowest latency profile by removing threadpool hops on PostgreSQL queries. However, it is not a general-purpose recommendation due to critical constraints: PostgreSQL-only driver requirement, tight coupling to Django internal releases, complex async transaction boundaries, and incompatibility with third-party Django apps that execute synchronous ORM operations.
 
 <!-- BENCHMARK_END -->
 

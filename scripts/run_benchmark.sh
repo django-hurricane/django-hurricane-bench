@@ -5,7 +5,7 @@ HURRICANE_VERSION="${HURRICANE_VERSION:-2.0.0rc1}"
 BENCH_USERS="${BENCH_USERS:-150}"
 BENCH_SPAWN_RATE="${BENCH_SPAWN_RATE:-25}"
 BENCH_DURATION="${BENCH_DURATION:-45s}"
-BENCH_FLAVORS="${BENCH_FLAVORS:-django-wsgi django-asgi-sync django-asgi django-asgi-async}"
+BENCH_FLAVORS="${BENCH_FLAVORS:-django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-async}"
 
 echo "======================================================================"
 echo " Starting Django Hurricane Benchmark Suite"
