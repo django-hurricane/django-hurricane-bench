@@ -98,3 +98,4 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Benchmark specific settings
 FAKE_API_URL = os.environ.get("FAKE_API_URL", "http://fake-api:8080")
 IS_ASYNC_BACKEND = False
+FORCE_SYNC_VIEWS = os.environ.get("FORCE_SYNC_VIEWS", "0").lower() in ("1", "true", "yes")

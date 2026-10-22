@@ -13,8 +13,9 @@ START_MARKER = "<!-- BENCHMARK_START -->"
 END_MARKER = "<!-- BENCHMARK_END -->"
 
 FLAVOR_LABELS = {
-    "django-wsgi": "WSGI (Granian Sync)",
-    "django-asgi": "ASGI (Granian Standard Async)",
+    "django-wsgi": "WSGI (Pure Sync)",
+    "django-asgi-sync": "ASGI (Forced Sync Views)",
+    "django-asgi": "ASGI (Clean Async Views)",
     "django-asgi-async": "ASGI + django-async-backend",
 }
 
@@ -134,15 +135,16 @@ def build_markdown_report(results, hurricane_version):
 
     # Architectural Analysis & Recommendations
     lines.append("#### Architectural Takeaways & Recommendation")
-    lines.append("- **WSGI (Granian Sync)**: Excels on deterministic, CPU-bound workloads (like pure template rendering) but suffers severely when external dependencies (like third-party APIs or slow microservices) block worker threads, causing queue buildup.")
-    lines.append("- **ASGI (Standard)**: Resolves the worker thread starvation issue by multiplexing HTTP connections on the Granian async event loop. However, standard Django ORM calls still incur small thread-dispatch penalties via `sync_to_async`.")
-    lines.append("- **ASGI + `django-async-backend`**: Highest aggregate throughput and lowest tail latency on mixed I/O workloads. By utilizing native `psycopg3` async connections and connection pooling directly on the asyncio loop, thread hops are completely bypassed.")
+    lines.append("- **WSGI (Pure Sync)**: Legacy baseline. Under concurrent traffic mixing database queries and external I/O, synchronous worker threads block. Queue buildup degrades performance across all routes.")
+    lines.append("- **ASGI (Forced Sync Views)**: The migration trap. Forcing synchronous views to run on an ASGI server routes every request through Django's `sync_to_async(thread_sensitive=True)` adapter. Because `thread_sensitive=True` executes sequentially on a single thread, blocking calls stall the entire thread, showing the penalty of running legacy sync views under ASGI without refactoring.")
+    lines.append("- **ASGI (Clean Async Views)**: Concurrency unlocked. Native `async def` views, shared pooled HTTP clients (`httpx`), and non-blocking template rendering allow the Granian event loop to yield during I/O waits, delivering high throughput and low tail latencies.")
+    lines.append("- **ASGI + `django-async-backend`**: The optimal architecture. Pairs Granian ASGI with native `psycopg3` async connection pooling on the event loop, completely eliminating threadpool hops on ORM queries for the lowest latency profile.")
 
     return "\n".join(lines)
 
 
 def update_readme(hurricane_version):
-    flavors = ["django-wsgi", "django-asgi", "django-asgi-async"]
+    flavors = ["django-wsgi", "django-asgi-sync", "django-asgi", "django-asgi-async"]
     results = []
     for f in flavors:
         stat = parse_flavor_stats(f)

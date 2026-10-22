@@ -19,6 +19,7 @@ import requests
 from apps.bench.models import Category, Product
 
 IS_WSGI = os.environ.get("HURRICANE_MODE", "").lower() == "wsgi"
+FORCE_SYNC_VIEWS = os.environ.get("FORCE_SYNC_VIEWS", "0").lower() in ("1", "true", "yes")
 
 # ---------------------------------------------------------------------------
 # Persistent Connection-Pooled HTTP Clients
@@ -145,7 +146,7 @@ def catalog_render_sync(request):
             "avg_price": round(float(avg_price), 2),
             "top_rated": top_rated,
         },
-        "mode": "WSGI",
+        "mode": "ASGI-Sync" if FORCE_SYNC_VIEWS else "WSGI",
         "timestamp": time.time(),
     }
     return render(request, "catalog/render.html", context)
@@ -454,7 +455,7 @@ def health_check(request):
 # Mode-Aware Route Binding
 # ---------------------------------------------------------------------------
 
-if IS_WSGI:
+if IS_WSGI or FORCE_SYNC_VIEWS:
     auth_login = auth_login_sync
     catalog_render = catalog_render_sync
     items_api = items_api_sync
