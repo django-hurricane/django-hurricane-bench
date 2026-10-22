@@ -43,10 +43,57 @@ async def delay_endpoint(request):
     })
 
 
+async def user_service(request):
+    """Simulates a microservice returning user profile & loyalty tier."""
+    user_id = request.query_params.get("id", "benchuser")
+    delay_ms = random.uniform(20.0, 40.0)
+    await asyncio.sleep(delay_ms / 1000.0)
+    return JSONResponse({
+        "service": "user-profile",
+        "user_id": user_id,
+        "tier": "enterprise_gold",
+        "discount_percent": 15,
+        "loyalty_points": 2450,
+        "latency_ms": round(delay_ms, 2),
+    })
+
+
+async def inventory_service(request):
+    """Simulates a warehouse inventory microservice."""
+    sku = request.query_params.get("sku", "SKU-DEFAULT")
+    delay_ms = random.uniform(25.0, 45.0)
+    await asyncio.sleep(delay_ms / 1000.0)
+    return JSONResponse({
+        "service": "warehouse-inventory",
+        "sku": sku,
+        "in_stock": True,
+        "warehouse_location": "eu-central-frankfurt",
+        "available_units": 85,
+        "latency_ms": round(delay_ms, 2),
+    })
+
+
+async def recommendations_service(request):
+    """Simulates an AI recommendations engine microservice."""
+    sku = request.query_params.get("sku", "SKU-DEFAULT")
+    delay_ms = random.uniform(30.0, 50.0)
+    await asyncio.sleep(delay_ms / 1000.0)
+    return JSONResponse({
+        "service": "ai-recommendations",
+        "target_sku": sku,
+        "recommended_skus": ["SKU-AUTO-101", "SKU-AUTO-204", "SKU-AUTO-309"],
+        "confidence_score": 0.94,
+        "latency_ms": round(delay_ms, 2),
+    })
+
+
 app = Starlette(
     debug=False,
     routes=[
         Route("/health", health, methods=["GET"]),
         Route("/delay", delay_endpoint, methods=["GET"]),
+        Route("/services/user", user_service, methods=["GET"]),
+        Route("/services/inventory", inventory_service, methods=["GET"]),
+        Route("/services/recommendations", recommendations_service, methods=["GET"]),
     ],
 )

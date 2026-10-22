@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import threading
@@ -478,6 +479,94 @@ async def catalog_search_async(request):
 
 
 # ---------------------------------------------------------------------------
+# 6. Scatter-Gather API Gateway Aggregator (/api/gateway/aggregate)
+# ---------------------------------------------------------------------------
+
+def gateway_aggregate_sync(request):
+    """
+    Synchronous API Gateway / BFF aggregator.
+    Simulates fan-out by sequentially calling 3 upstream microservices.
+    Incurs sequential blocking latency: T_total = T1 + T2 + T3, blocking worker thread throughout.
+    """
+    user_id = request.GET.get("user_id", "benchuser")
+    sku = request.GET.get("sku", "SKU-TEST-001")
+    session = get_sync_session()
+
+    base_url = settings.FAKE_API_URL
+    start_time = time.perf_counter()
+
+    try:
+        r_user = session.get(f"{base_url}/services/user?id={user_id}", timeout=10.0)
+        user_data = r_user.json()
+    except Exception as exc:
+        user_data = {"error": str(exc)}
+
+    try:
+        r_inv = session.get(f"{base_url}/services/inventory?sku={sku}", timeout=10.0)
+        inv_data = r_inv.json()
+    except Exception as exc:
+        inv_data = {"error": str(exc)}
+
+    try:
+        r_rec = session.get(f"{base_url}/services/recommendations?sku={sku}", timeout=10.0)
+        rec_data = r_rec.json()
+    except Exception as exc:
+        rec_data = {"error": str(exc)}
+
+    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+    return JsonResponse({
+        "status": "success",
+        "concurrency_mode": "wsgi_sequential_blocking",
+        "roundtrip_ms": elapsed_ms,
+        "aggregated_data": {
+            "user": user_data,
+            "inventory": inv_data,
+            "recommendations": rec_data,
+        },
+    })
+
+
+async def gateway_aggregate_async(request):
+    """
+    Asynchronous API Gateway / BFF aggregator.
+    Executes true non-blocking fan-out via asyncio.gather() across 3 microservices.
+    Total latency is bound by the slowest single service: T_total = max(T1, T2, T3).
+    Yields the event loop during all socket waits—zero OS threads blocked.
+    """
+    user_id = request.GET.get("user_id", "benchuser")
+    sku = request.GET.get("sku", "SKU-TEST-001")
+    client = get_async_client()
+
+    base_url = settings.FAKE_API_URL
+    start_time = time.perf_counter()
+
+    async def fetch_endpoint(url):
+        try:
+            resp = await client.get(url)
+            return resp.json()
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    user_data, inv_data, rec_data = await asyncio.gather(
+        fetch_endpoint(f"{base_url}/services/user?id={user_id}"),
+        fetch_endpoint(f"{base_url}/services/inventory?sku={sku}"),
+        fetch_endpoint(f"{base_url}/services/recommendations?sku={sku}"),
+    )
+
+    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+    return JsonResponse({
+        "status": "success",
+        "concurrency_mode": "asgi_parallel_gather",
+        "roundtrip_ms": elapsed_ms,
+        "aggregated_data": {
+            "user": user_data,
+            "inventory": inv_data,
+            "recommendations": rec_data,
+        },
+    })
+
+
+# ---------------------------------------------------------------------------
 # Health & Diagnostic Probe
 # ---------------------------------------------------------------------------
 
@@ -501,6 +590,7 @@ if IS_WSGI or FORCE_SYNC_VIEWS:
     items_api = items_api_sync
     external_fetch = external_fetch_sync
     catalog_search = catalog_search_sync
+    gateway_aggregate = gateway_aggregate_sync
 else:
     auth_login = auth_login_async
     auth_me = auth_me_async
@@ -508,3 +598,4 @@ else:
     items_api = items_api_async
     external_fetch = external_fetch_async
     catalog_search = catalog_search_async
+    gateway_aggregate = gateway_aggregate_async

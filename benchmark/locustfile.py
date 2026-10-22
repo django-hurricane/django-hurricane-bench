@@ -37,7 +37,17 @@ class DjangoHurricaneBenchUser(HttpUser):
         except Exception:
             return False
 
-    @task(30)
+    @task(25)
+    def gateway_aggregate(self):
+        """Benchmark API Gateway / BFF fan-out: sequential blocking in WSGI vs asyncio.gather in ASGI."""
+        sku = random.choice(["SKU-CLOUD-01", "SKU-NODE-02", "SKU-SCALE-03"])
+        self.client.get(
+            f"/api/gateway/aggregate?user_id=benchuser&sku={sku}",
+            name="/api/gateway/aggregate [GET]",
+            timeout=15.0,
+        )
+
+    @task(20)
     def items_api_get(self):
         """Benchmark JSON API serialization of ORM queries."""
         offset = random.choice([0, 25, 50])
@@ -47,7 +57,7 @@ class DjangoHurricaneBenchUser(HttpUser):
             timeout=15.0,
         )
 
-    @task(20)
+    @task(15)
     def external_delay(self):
         """Benchmark non-blocking vs blocking handling of slow third-party API."""
         min_ms = random.randint(20, 40)
@@ -58,7 +68,7 @@ class DjangoHurricaneBenchUser(HttpUser):
             timeout=15.0,
         )
 
-    @task(20)
+    @task(15)
     def catalog_render(self):
         """Benchmark Django Template Language (DTL) nested rendering engine."""
         limit = random.choice([15, 25])
@@ -68,7 +78,7 @@ class DjangoHurricaneBenchUser(HttpUser):
             timeout=15.0,
         )
 
-    @task(15)
+    @task(10)
     def catalog_search(self):
         """Benchmark PostgreSQL relational filters, joins, and aggregates."""
         query = random.choice(["compute", "engine", "scale", "managed", "cloud"])

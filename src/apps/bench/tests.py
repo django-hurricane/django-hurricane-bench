@@ -197,3 +197,31 @@ class BenchmarkViewsTestCase(TestCase):
         cat_mgr = get_category_manager()
         self.assertIsNotNone(prod_mgr)
         self.assertIsNotNone(cat_mgr)
+
+    def test_gateway_aggregate_sync(self):
+        from apps.bench.views import gateway_aggregate_sync
+        from django.test import RequestFactory
+        factory = RequestFactory()
+        request = factory.get("/api/gateway/aggregate?user_id=benchuser&sku=SKU-TEST-001")
+        response = gateway_aggregate_sync(request)
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content.decode("utf-8"))
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["concurrency_mode"], "wsgi_sequential_blocking")
+        self.assertIn("user", data["aggregated_data"])
+        self.assertIn("inventory", data["aggregated_data"])
+        self.assertIn("recommendations", data["aggregated_data"])
+
+    async def test_gateway_aggregate_async(self):
+        from apps.bench.views import gateway_aggregate_async
+        from django.test import RequestFactory
+        factory = RequestFactory()
+        request = factory.get("/api/gateway/aggregate?user_id=benchuser&sku=SKU-TEST-001")
+        response = await gateway_aggregate_async(request)
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content.decode("utf-8"))
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["concurrency_mode"], "asgi_parallel_gather")
+        self.assertIn("user", data["aggregated_data"])
+        self.assertIn("inventory", data["aggregated_data"])
+        self.assertIn("recommendations", data["aggregated_data"])
