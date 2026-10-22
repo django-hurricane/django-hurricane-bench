@@ -14,10 +14,10 @@ END_MARKER = "<!-- BENCHMARK_END -->"
 
 FLAVOR_LABELS = {
     "django-wsgi": "WSGI (Worker=1 / Single Thread)",
-    "django-wsgi-auto": "WSGI (Auto Threads / Multi-Thread)",
+    "django-wsgi-auto": "WSGI (Worker=Auto / Multi-Thread)",
     "django-asgi-sync": "ASGI (Forced Sync Views)",
-    "django-asgi": "ASGI (Clean Async / Single Thread)",
-    "django-asgi-auto": "ASGI (Auto Threads / Clean Async)",
+    "django-asgi": "ASGI (Worker=1 / Clean Async)",
+    "django-asgi-auto": "ASGI (Worker=Auto / Clean Async)",
     "django-asgi-async": "ASGI + django-async-backend",
 }
 

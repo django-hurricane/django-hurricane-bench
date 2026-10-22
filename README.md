@@ -126,7 +126,8 @@ The GitHub Actions runner executes each flavor sequentially, writes artifact rep
 | **WSGI (Auto Threads)** | Granian WSGI | 1 | `min(32, CPU+4)` (6–12) | None | Multi-threaded (In-thread) | Sync psycopg (4 conns) |
 | **ASGI (Forced Sync)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | `asgiref` single-thread queue | Sync psycopg (4 conns) |
 | **ASGI (Clean Async)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Sync psycopg (4 conns) |
-| **ASGI + DAB** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Async psycopg-pool (5–50 conns) |
+| **ASGI (Auto Threads)** | Granian ASGI | 1 | `min(32, CPU+4)` (6–12) | Tokio (`mt`) | Native async views + multi-thread DTL | Sync psycopg (4 conns) |
+| **ASGI + DAB** | Granian ASGI | 1 | 1 | Tokio (`mt`) | True async ORM (`async_objects`) | Async psycopg-pool (5–50 conns) |
 
 #### Aggregate Performance Metrics
 | Flavor | Throughput | Median (p50) | 95th (p95) | 99th (p99) | Error Rate | Requests |

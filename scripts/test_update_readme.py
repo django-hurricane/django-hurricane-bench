@@ -31,7 +31,8 @@ class TestUpdateReadme(unittest.TestCase):
         self.assertIn("django-asgi-auto", FLAVOR_LABELS)
         self.assertIn("django-asgi-sync", FLAVOR_LABELS)
         self.assertIn("django-asgi-async", FLAVOR_LABELS)
-        self.assertEqual(FLAVOR_LABELS["django-asgi-auto"], "ASGI (Auto Threads / Clean Async)")
+        self.assertEqual(FLAVOR_LABELS["django-asgi-auto"], "ASGI (Worker=Auto / Clean Async)")
+        self.assertEqual(FLAVOR_LABELS["django-asgi"], "ASGI (Worker=1 / Clean Async)")
 
     def test_build_markdown_report(self):
         sample_results = [
@@ -62,7 +63,7 @@ class TestUpdateReadme(unittest.TestCase):
             },
             {
                 "flavor": "django-asgi",
-                "label": "ASGI (Clean Async / Single Thread)",
+                "label": "ASGI (Worker=1 / Clean Async)",
                 "total_requests": 3000,
                 "failures": 0,
                 "error_rate": 0.0,
@@ -87,7 +88,7 @@ class TestUpdateReadme(unittest.TestCase):
             },
             {
                 "flavor": "django-asgi-auto",
-                "label": "ASGI (Auto Threads / Clean Async)",
+                "label": "ASGI (Worker=Auto / Clean Async)",
                 "total_requests": 3800,
                 "failures": 0,
                 "error_rate": 0.0,
@@ -114,8 +115,8 @@ class TestUpdateReadme(unittest.TestCase):
         markdown = build_markdown_report(sample_results, "2.0.0rc1")
         self.assertIn("Latest Benchmark Results", markdown)
         self.assertIn("WSGI (Pure Sync)", markdown)
-        self.assertIn("ASGI (Clean Async / Single Thread)", markdown)
-        self.assertIn("ASGI (Auto Threads / Clean Async)", markdown)
+        self.assertIn("ASGI (Worker=1 / Clean Async)", markdown)
+        self.assertIn("ASGI (Worker=Auto / Clean Async)", markdown)
         self.assertIn("320.5 req/s", markdown)
         self.assertIn("750.0 req/s", markdown)
         self.assertIn("950.0 req/s", markdown)
