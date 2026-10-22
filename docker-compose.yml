@@ -49,7 +49,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-benchpass}
       - FAKE_API_URL=http://fake-api:8080
       - DJANGO_SETTINGS_MODULE=config.settings
-    command: ["python", "manage.py", "serve", "--mode", "wsgi", "--port", "8000", "--probe-port", "8000", "--no-rate-limit"]
+    command: ["python", "manage.py", "serve", "--mode", "wsgi", "--port", "8000", "--probe-port", "8000", "--workers", "1", "--no-rate-limit"]
     ports:
       - "8001:8000"
     depends_on:
