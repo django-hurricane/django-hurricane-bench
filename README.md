@@ -104,7 +104,7 @@ The GitHub Actions runner executes each flavor sequentially, writes artifact rep
 
 <!-- BENCHMARK_START -->
 
-### Latest Benchmark Results (2026-10-22 12:23:46 UTC)
+### Latest Benchmark Results (2026-10-22 12:54:25 UTC)
 **Django Hurricane Version:** `2.0.0rc1` | **PostgreSQL:** `17` | **Python:** `3.12`
 
 #### Server & Worker Runtime Architecture
@@ -119,60 +119,60 @@ The GitHub Actions runner executes each flavor sequentially, writes artifact rep
 #### Aggregate Performance Metrics
 | Flavor | Throughput | Median (p50) | 95th (p95) | 99th (p99) | Error Rate | Requests |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **WSGI (Worker=1 / Single Thread)** | **51.3 req/s** | 700.0 ms | 1000.0 ms | 1100.0 ms | 0.0% | 462 |
-| **WSGI (Auto Threads / Multi-Thread)** | **174.7 req/s** | 99.0 ms | 200.0 ms | 230.0 ms | 0.0% | 1,572 |
-| **ASGI (Forced Sync Views)** | **80.3 req/s** | 440.0 ms | 630.0 ms | 670.0 ms | 0.0% | 723 |
-| **ASGI (Clean Async Views)** | **70.9 req/s** | 560.0 ms | 750.0 ms | 820.0 ms | 0.0% | 638 |
-| **ASGI + django-async-backend** | **74.0 req/s** | 490.0 ms | 620.0 ms | 650.0 ms | 0.0% | 668 |
+| **WSGI (Worker=1 / Single Thread)** | **56.6 req/s** | 2500.0 ms | 3000.0 ms | 3200.0 ms | 0.0% | 16,938 |
+| **WSGI (Auto Threads / Multi-Thread)** | **257.0 req/s** | 430.0 ms | 500.0 ms | 530.0 ms | 0.0% | 76,979 |
+| **ASGI (Forced Sync Views)** | **136.5 req/s** | 1200.0 ms | 1300.0 ms | 1400.0 ms | 0.0% | 40,860 |
+| **ASGI (Clean Async Views)** | **125.9 req/s** | 1300.0 ms | 1400.0 ms | 1500.0 ms | 0.0% | 37,702 |
+| **ASGI + django-async-backend** | **93.1 req/s** | 1200.0 ms | 4200.0 ms | 4600.0 ms | 0.0% | 27,892 |
 
 #### Throughput (Requests per Second - Higher is better)
 ```text
-WSGI (Worker=1 / Single Thread)  [█████████                       ]     51.3 req/s
-WSGI (Auto Threads / Multi-Thread) [████████████████████████████████]    174.7 req/s
-ASGI (Forced Sync Views)         [███████████████                 ]     80.3 req/s
-ASGI (Clean Async Views)         [█████████████                   ]     70.9 req/s
-ASGI + django-async-backend      [██████████████                  ]     74.0 req/s
+WSGI (Worker=1 / Single Thread)  [███████                         ]     56.6 req/s
+WSGI (Auto Threads / Multi-Thread) [████████████████████████████████]    257.0 req/s
+ASGI (Forced Sync Views)         [█████████████████               ]    136.5 req/s
+ASGI (Clean Async Views)         [████████████████                ]    125.9 req/s
+ASGI + django-async-backend      [████████████                    ]     93.1 req/s
 ```
 
 #### 95th Percentile Latency (Lower is better)
 ```text
-WSGI (Worker=1 / Single Thread)  [████████████████████████████████]   1000.0 ms
-WSGI (Auto Threads / Multi-Thread) [██████                          ]    200.0 ms
-ASGI (Forced Sync Views)         [████████████████████            ]    630.0 ms
-ASGI (Clean Async Views)         [████████████████████████        ]    750.0 ms
-ASGI + django-async-backend      [████████████████████            ]    620.0 ms
+WSGI (Worker=1 / Single Thread)  [███████████████████████         ]   3000.0 ms
+WSGI (Auto Threads / Multi-Thread) [████                            ]    500.0 ms
+ASGI (Forced Sync Views)         [██████████                      ]   1300.0 ms
+ASGI (Clean Async Views)         [███████████                     ]   1400.0 ms
+ASGI + django-async-backend      [████████████████████████████████]   4200.0 ms
 ```
 
 #### Concurrency Scaling & User Scaling Penalty
-Latency progression and degradation factor as concurrent simulated users ramp up from initial ramp (`15` users) through mid-stage (`45` users) to peak concurrency (`50` users):
+Latency progression and degradation factor as concurrent simulated users ramp up from initial ramp (`25` users) through mid-stage (`100` users) to peak concurrency (`150` users):
 
-| Flavor | Initial Load (~15 Users) p50 / p95 | Mid Load (~45 Users) p50 / p95 | Peak Load (50 Users) p50 / p95 | Latency Scaling Penalty |
+| Flavor | Initial Load (~25 Users) p50 / p95 | Mid Load (~100 Users) p50 / p95 | Peak Load (150 Users) p50 / p95 | Latency Scaling Penalty |
 | :--- | :---: | :---: | :---: | :---: |
-| **WSGI (Worker=1 / Single Thread)** | 160.0 ms / 290.0 ms | 360.0 ms / 570.0 ms | 570.0 ms / 928.3 ms | **3.2x** |
-| **WSGI (Auto Threads / Multi-Thread)** | 48.0 ms / 93.0 ms | 42.0 ms / 100.0 ms | 67.3 ms / 167.8 ms | **1.8x** |
-| **ASGI (Forced Sync Views)** | 96.0 ms / 300.0 ms | 210.0 ms / 620.0 ms | 360.0 ms / 621.7 ms | **2.07x** |
-| **ASGI (Clean Async Views)** | 100.0 ms / 320.0 ms | 270.0 ms / 700.0 ms | 468.3 ms / 735.0 ms | **2.3x** |
-| **ASGI + django-async-backend** | 130.0 ms / 200.0 ms | 310.0 ms / 600.0 ms | 430.0 ms / 613.3 ms | **3.07x** |
+| **WSGI (Worker=1 / Single Thread)** | 200.0 ms / 430.0 ms | 440.0 ms / 890.0 ms | 2446.0 ms / 2963.9 ms | **6.89x** |
+| **WSGI (Auto Threads / Multi-Thread)** | 32.0 ms / 110.0 ms | 130.0 ms / 260.0 ms | 413.4 ms / 491.7 ms | **4.47x** |
+| **ASGI (Forced Sync Views)** | 68.0 ms / 250.0 ms | 230.0 ms / 740.0 ms | 1174.8 ms / 1300.3 ms | **5.2x** |
+| **ASGI (Clean Async Views)** | 80.0 ms / 270.0 ms | 280.0 ms / 780.0 ms | 1281.1 ms / 1402.0 ms | **5.19x** |
+| **ASGI + django-async-backend** | 110.0 ms / 340.0 ms | 380.0 ms / 810.0 ms | 1126.0 ms / 3463.3 ms | **10.19x** |
 
 ##### Latency Inflation Factor under Load Scaling (Peak p95 vs Initial p95 - Lower is better)
 ```text
-WSGI (Worker=1 / Single Thread)  [████████████████████████████████]  3.20x penalty
-WSGI (Auto Threads / Multi-Thread) [██████████████████              ]  1.80x penalty
-ASGI (Forced Sync Views)         [█████████████████████           ]  2.07x penalty
-ASGI (Clean Async Views)         [███████████████████████         ]  2.30x penalty
-ASGI + django-async-backend      [███████████████████████████████ ]  3.07x penalty
+WSGI (Worker=1 / Single Thread)  [██████████████████████          ]  6.89x penalty
+WSGI (Auto Threads / Multi-Thread) [██████████████                  ]  4.47x penalty
+ASGI (Forced Sync Views)         [████████████████                ]  5.20x penalty
+ASGI (Clean Async Views)         [████████████████                ]  5.19x penalty
+ASGI + django-async-backend      [████████████████████████████████] 10.19x penalty
 ```
 
 #### Route Breakdown Across Flavors
 | Route | WSGI (Worker=1 / Single Thread) (p95 / RPS) | WSGI (Auto Threads / Multi-Thread) (p95 / RPS) | ASGI (Forced Sync Views) (p95 / RPS) | ASGI (Clean Async Views) (p95 / RPS) | ASGI + django-async-backend (p95 / RPS) |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| `/api/auth/login` | 600.0 ms (5.5 rps) | 110.0 ms (5.6 rps) | 630.0 ms (5.6 rps) | 770.0 ms (5.6 rps) | 640.0 ms (5.5 rps) |
-| `/api/auth/me [GET]` | 1000.0 ms (2.3 rps) | 190.0 ms (8.9 rps) | 650.0 ms (4.0 rps) | 690.0 ms (3.8 rps) | 580.0 ms (3.8 rps) |
-| `/api/items [GET]` | 1000.0 ms (15.0 rps) | 200.0 ms (48.6 rps) | 620.0 ms (20.4 rps) | 760.0 ms (20.5 rps) | 590.0 ms (19.4 rps) |
-| `/api/items [POST]` | 1000.0 ms (2.9 rps) | 200.0 ms (7.2 rps) | 670.0 ms (3.9 rps) | 750.0 ms (2.0 rps) | 600.0 ms (3.7 rps) |
-| `/catalog/render [GET]` | 1100.0 ms (8.9 rps) | 210.0 ms (34.1 rps) | 640.0 ms (12.9 rps) | 800.0 ms (11.7 rps) | 620.0 ms (14.5 rps) |
-| `/catalog/search [GET]` | 1000.0 ms (6.1 rps) | 200.0 ms (27.1 rps) | 640.0 ms (12.7 rps) | 730.0 ms (9.9 rps) | 600.0 ms (10.4 rps) |
-| `/external/fetch [GET]` | 1100.0 ms (10.5 rps) | 190.0 ms (43.2 rps) | 250.0 ms (20.9 rps) | 240.0 ms (17.6 rps) | 630.0 ms (16.7 rps) |
+| `/api/auth/login` | 2000.0 ms (0.5 rps) | 420.0 ms (0.5 rps) | 1400.0 ms (0.5 rps) | 1500.0 ms (0.5 rps) | 1400.0 ms (0.5 rps) |
+| `/api/auth/me [GET]` | 2900.0 ms (2.7 rps) | 480.0 ms (12.6 rps) | 1300.0 ms (6.7 rps) | 1400.0 ms (6.2 rps) | 1500.0 ms (4.6 rps) |
+| `/api/items [GET]` | 3000.0 ms (16.8 rps) | 480.0 ms (77.2 rps) | 1300.0 ms (40.5 rps) | 1500.0 ms (37.6 rps) | 1500.0 ms (27.6 rps) |
+| `/api/items [POST]` | 3000.0 ms (2.9 rps) | 480.0 ms (13.0 rps) | 1300.0 ms (6.8 rps) | 1500.0 ms (6.3 rps) | 1500.0 ms (4.7 rps) |
+| `/catalog/render [GET]` | 3000.0 ms (11.3 rps) | 490.0 ms (51.4 rps) | 1300.0 ms (26.9 rps) | 1500.0 ms (25.1 rps) | 4600.0 ms (18.5 rps) |
+| `/catalog/search [GET]` | 3000.0 ms (8.4 rps) | 500.0 ms (38.0 rps) | 1300.0 ms (20.9 rps) | 1500.0 ms (18.6 rps) | 1600.0 ms (14.1 rps) |
+| `/external/fetch [GET]` | 3000.0 ms (13.9 rps) | 530.0 ms (64.3 rps) | 170.0 ms (34.2 rps) | 170.0 ms (31.6 rps) | 1400.0 ms (23.2 rps) |
 
 #### Architectural Takeaways & Production Recommendations
 - **WSGI (Worker=1 / Single Thread)**: The strict 1-to-1 baseline. Demonstrates the extreme vulnerability of single-threaded synchronous architectures: any blocking I/O (e.g. upstream API calls) freezes the entire server, producing severe queue buildup and high tail latency.
