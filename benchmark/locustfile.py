@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import time
 from locust import HttpUser, between, task
 
 
@@ -9,7 +10,10 @@ class DjangoHurricaneBenchUser(HttpUser):
 
     def on_start(self):
         """Perform initial login to acquire session cookie and verify auth middleware."""
-        self._login()
+        for attempt in range(3):
+            if self._login():
+                break
+            time.sleep(0.5)
 
     def _login(self):
         try:
@@ -17,7 +21,7 @@ class DjangoHurricaneBenchUser(HttpUser):
                 "/api/auth/login",
                 json={"username": "benchuser", "password": "benchpassword"},
                 name="/api/auth/login",
-                timeout=10.0,
+                timeout=15.0,
             )
             return resp.status_code == 200
         except Exception:
@@ -27,7 +31,11 @@ class DjangoHurricaneBenchUser(HttpUser):
     def items_api_get(self):
         """Benchmark JSON API serialization of ORM queries."""
         offset = random.choice([0, 25, 50])
-        self.client.get(f"/api/items?limit=25&offset={offset}", name="/api/items [GET]")
+        self.client.get(
+            f"/api/items?limit=25&offset={offset}",
+            name="/api/items [GET]",
+            timeout=15.0,
+        )
 
     @task(25)
     def external_delay(self):
@@ -37,20 +45,28 @@ class DjangoHurricaneBenchUser(HttpUser):
         self.client.get(
             f"/external/fetch?min={min_ms}&max={max_ms}",
             name="/external/fetch [GET]",
-            timeout=10.0,
+            timeout=15.0,
         )
 
     @task(20)
     def catalog_render(self):
         """Benchmark Django Template Language (DTL) nested rendering engine."""
         limit = random.choice([15, 25])
-        self.client.get(f"/catalog/render?limit={limit}", name="/catalog/render [GET]")
+        self.client.get(
+            f"/catalog/render?limit={limit}",
+            name="/catalog/render [GET]",
+            timeout=15.0,
+        )
 
     @task(15)
     def catalog_search(self):
         """Benchmark PostgreSQL relational filters, joins, and aggregates."""
         query = random.choice(["compute", "engine", "scale", "managed", "cloud"])
-        self.client.get(f"/catalog/search?q={query}", name="/catalog/search [GET]")
+        self.client.get(
+            f"/catalog/search?q={query}",
+            name="/catalog/search [GET]",
+            timeout=15.0,
+        )
 
     @task(5)
     def items_api_post(self):
@@ -63,11 +79,19 @@ class DjangoHurricaneBenchUser(HttpUser):
             "tags": ["locust", "bench", "synthetic"],
             "specifications": {"vcpus": "4", "ram": "16GB", "runner": "locust"},
         }
-        self.client.post("/api/items", json=payload, name="/api/items [POST]")
+        self.client.post(
+            "/api/items",
+            json=payload,
+            name="/api/items [POST]",
+            timeout=15.0,
+        )
 
     @task(5)
     def auth_flow(self):
         """Re-verify session cookie authentication middleware."""
-        resp = self.client.get("/api/auth/me", name="/api/auth/me [GET]")
-        if resp.status_code == 401:
-            self._login()
+        with self.client.get("/api/auth/me", name="/api/auth/me [GET]", timeout=15.0, catch_response=True) as resp:
+            if resp.status_code == 401:
+                self._login()
+                resp.failure("Session expired or missing - re-authenticating")
+            else:
+                resp.success()

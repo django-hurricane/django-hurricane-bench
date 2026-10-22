@@ -76,9 +76,13 @@ DATABASES = {
     }
 }
 
-# Password validation
+# Password validation and hashing
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 6}},
+]
+
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
 
 LANGUAGE_CODE = "en-us"

@@ -102,39 +102,39 @@ The GitHub Actions runner executes each flavor sequentially, writes artifact rep
 
 <!-- BENCHMARK_START -->
 
-### Latest Benchmark Results (2026-10-22 08:38:17 UTC)
+### Latest Benchmark Results (2026-10-22 09:24:53 UTC)
 **Django Hurricane Version:** `2.0.0rc1` | **PostgreSQL:** `17` | **Python:** `3.12`
 
 | Flavor | Throughput | Median (p50) | 95th (p95) | 99th (p99) | Error Rate | Requests |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **WSGI (Granian Sync)** | **110.2 req/s** | 33.0 ms | 240.0 ms | 540.0 ms | 0.0% | 993 |
-| **ASGI (Granian Standard Async)** | **64.5 req/s** | 190.0 ms | 420.0 ms | 830.0 ms | 0.0% | 578 |
-| **ASGI + django-async-backend** | **63.4 req/s** | 220.0 ms | 410.0 ms | 630.0 ms | 0.0% | 570 |
+| **WSGI (Granian Sync)** | **175.6 req/s** | 96.0 ms | 220.0 ms | 270.0 ms | 0.0% | 1,582 |
+| **ASGI (Granian Standard Async)** | **59.3 req/s** | 650.0 ms | 960.0 ms | 1000.0 ms | 0.0% | 534 |
+| **ASGI + django-async-backend** | **61.2 req/s** | 560.0 ms | 810.0 ms | 870.0 ms | 0.0% | 551 |
 
 #### Throughput (Requests per Second - Higher is better)
 ```text
-WSGI (Granian Sync)              [████████████████████████████████]    110.2 req/s
-ASGI (Granian Standard Async)    [███████████████████             ]     64.5 req/s
-ASGI + django-async-backend      [██████████████████              ]     63.4 req/s
+WSGI (Granian Sync)              [████████████████████████████████]    175.6 req/s
+ASGI (Granian Standard Async)    [███████████                     ]     59.3 req/s
+ASGI + django-async-backend      [███████████                     ]     61.2 req/s
 ```
 
 #### 95th Percentile Latency (Lower is better)
 ```text
-WSGI (Granian Sync)              [██████████████████              ]    240.0 ms
-ASGI (Granian Standard Async)    [████████████████████████████████]    420.0 ms
-ASGI + django-async-backend      [███████████████████████████████ ]    410.0 ms
+WSGI (Granian Sync)              [███████                         ]    220.0 ms
+ASGI (Granian Standard Async)    [████████████████████████████████]    960.0 ms
+ASGI + django-async-backend      [███████████████████████████     ]    810.0 ms
 ```
 
 #### Route Breakdown Across Flavors
 | Route | WSGI (Granian Sync) (p95 / RPS) | ASGI (Granian Standard Async) (p95 / RPS) | ASGI + django-async-backend (p95 / RPS) |
 | :--- | :---: | :---: | :---: |
-| `/api/auth/login` | 780.0 ms (2.8 rps) | 1100.0 ms (2.8 rps) | 690.0 ms (2.8 rps) |
-| `/api/auth/me [GET]` | 110.0 ms (6.4 rps) | 310.0 ms (3.0 rps) | 260.0 ms (3.3 rps) |
-| `/api/items [GET]` | 94.0 ms (33.6 rps) | 360.0 ms (19.8 rps) | 320.0 ms (18.8 rps) |
-| `/api/items [POST]` | 320.0 ms (6.2 rps) | 340.0 ms (3.1 rps) | 330.0 ms (2.9 rps) |
-| `/catalog/render [GET]` | 86.0 ms (18.6 rps) | 360.0 ms (11.7 rps) | 310.0 ms (12.1 rps) |
-| `/catalog/search [GET]` | 230.0 ms (15.3 rps) | 350.0 ms (9.2 rps) | 290.0 ms (9.1 rps) |
-| `/external/fetch [GET]` | 110.0 ms (27.2 rps) | 300.0 ms (15.0 rps) | 380.0 ms (14.4 rps) |
+| `/api/auth/login` | 210.0 ms (5.5 rps) | 990.0 ms (5.6 rps) | 850.0 ms (5.6 rps) |
+| `/api/auth/me [GET]` | 200.0 ms (7.1 rps) | 930.0 ms (3.2 rps) | 620.0 ms (2.7 rps) |
+| `/api/items [GET]` | 210.0 ms (50.5 rps) | 990.0 ms (13.1 rps) | 660.0 ms (18.7 rps) |
+| `/api/items [POST]` | 180.0 ms (9.5 rps) | 1000.0 ms (2.4 rps) | 660.0 ms (3.0 rps) |
+| `/catalog/render [GET]` | 270.0 ms (32.8 rps) | 960.0 ms (10.6 rps) | 630.0 ms (10.1 rps) |
+| `/catalog/search [GET]` | 220.0 ms (24.5 rps) | 970.0 ms (9.3 rps) | 650.0 ms (7.2 rps) |
+| `/external/fetch [GET]` | 210.0 ms (45.5 rps) | 320.0 ms (15.1 rps) | 870.0 ms (14.0 rps) |
 
 #### Architectural Takeaways & Recommendation
 - **WSGI (Granian Sync)**: Excels on deterministic, CPU-bound workloads (like pure template rendering) but suffers severely when external dependencies (like third-party APIs or slow microservices) block worker threads, causing queue buildup.

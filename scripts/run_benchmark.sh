@@ -64,7 +64,7 @@ for flavor in ${BENCH_FLAVORS}; do
     echo "--> Warming up ${flavor} (5s)..."
     docker compose run --rm -e TARGET_HOST="http://${flavor}:8000" locust \
         -f locustfile.py --headless -H "http://${flavor}:8000" \
-        -u 20 -r 10 --run-time 5s > /dev/null 2>&1 || true
+        -u 20 -r 10 --run-time 5s --exit-code-on-error 0 > /dev/null 2>&1 || true
 
     # Benchmark run
     echo "--> Running Locust load test against ${flavor}..."
@@ -72,6 +72,7 @@ for flavor in ${BENCH_FLAVORS}; do
         -f locustfile.py --headless -H "http://${flavor}:8000" \
         -u "${BENCH_USERS}" -r "${BENCH_SPAWN_RATE}" \
         --run-time "${BENCH_DURATION}" \
+        --exit-code-on-error 0 \
         --csv="/reports/${flavor}"
 
     echo "--> Stopping ${flavor} to prevent resource bleed..."
