@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | Django Hurricane Benchmark{% endblock %}
+{% block header %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="card">
+        <div style="color: var(--text-secondary); font-size: 0.875rem;">Displayed Items</div>
+        <div class="card-val">{{ stats.displayed_count }}</div>
+    </div>
+    <div class="card">
+        <div style="color: var(--text-secondary); font-size: 0.875rem;">Total Inventory Stock</div>
+        <div class="card-val">{{ stats.total_stock }}</div>
+    </div>
+    <div class="card">
+        <div style="color: var(--text-secondary); font-size: 0.875rem;">Average Price</div>
+        <div class="card-val">${{ stats.avg_price }}</div>
+    </div>
+    <div class="card">
+        <div style="color: var(--text-secondary); font-size: 0.875rem;">Active Categories</div>
+        <div class="card-val">{{ categories|length }}</div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 2rem;">
+    <h3>Top Rated Products</h3>
+    <ul>
+        {% for top in stats.top_rated %}
+            <li><strong>{{ top.name }}</strong> - ★ {{ top.rating|floatformat:1 }} (Category: {{ top.category.name }}, ${{ top.price|floatformat:2 }})</li>
+        {% empty %}
+            <li>No top rated items.</li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="card">
+    <h3>Product Catalog Matrix</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Product</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Inventory</th>
+                <th>Rating</th>
+                <th>Tags</th>
+                <th>Specs</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for product in products %}
+                {% include "catalog/_product_row.html" with product=product %}
+            {% empty %}
+                <tr>
+                    <td colspan="8" style="text-align: center; color: var(--text-secondary);">No products available in database.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<footer style="margin-top: 2rem; color: var(--text-secondary); font-size: 0.8rem; text-align: right;">
+    Generated at {{ timestamp }} by Django Hurricane ({{ mode }})
+</footer>
+{% endblock %}

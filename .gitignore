@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+env/
+venv/
+ENV/
+
+# Reports and benchmark runs
+reports/*.csv
+reports/*.html
+reports/*.log
+
+# Database & Docker
+postgres_data/
+
+# Django
+staticfiles/
+*.sqlite3
+
+# Environment
+.env
+.env.*
+!.env.example

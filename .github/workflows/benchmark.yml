@@ -1,0 +1,92 @@
+name: Django Hurricane Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      hurricane_version:
+        description: 'django-hurricane PyPI version'
+        required: true
+        default: '2.0.0rc1'
+        type: string
+      bench_users:
+        description: 'Locust concurrent user count'
+        required: true
+        default: '150'
+        type: string
+      bench_spawn_rate:
+        description: 'Locust spawn rate (users/sec)'
+        required: true
+        default: '25'
+        type: string
+      bench_duration:
+        description: 'Benchmark duration per flavor (e.g. 45s, 2m)'
+        required: true
+        default: '45s'
+        type: string
+      flavor_selection:
+        description: 'Deployment scenarios to evaluate'
+        required: true
+        type: choice
+        options:
+          - all
+          - django-wsgi
+          - django-asgi
+          - django-asgi-async
+        default: 'all'
+
+permissions:
+  contents: write
+
+jobs:
+  run-benchmark:
+    name: "Benchmark: ${{ inputs.hurricane_version }}"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run Hurricane Benchmark Suite
+        run: |
+          FLAVORS="${{ inputs.flavor_selection }}"
+          if [ "$FLAVORS" = "all" ]; then
+            export BENCH_FLAVORS="django-wsgi django-asgi django-asgi-async"
+          else
+            export BENCH_FLAVORS="$FLAVORS"
+          fi
+
+          export HURRICANE_VERSION="${{ inputs.hurricane_version }}"
+          export BENCH_USERS="${{ inputs.bench_users }}"
+          export BENCH_SPAWN_RATE="${{ inputs.bench_spawn_rate }}"
+          export BENCH_DURATION="${{ inputs.bench_duration }}"
+
+          ./scripts/run_benchmark.sh
+
+      - name: Upload Benchmark Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-reports-${{ inputs.hurricane_version }}
+          path: reports/
+
+      - name: Commit Updated README.md
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Benchmark Runner"
+          git add README.md
+          if git diff --staged --quiet; then
+            echo "No changes to README.md"
+          else
+            git commit -m "docs(bench): update benchmark results for django-hurricane==${{ inputs.hurricane_version }} [skip ci]"
+            git push
+          fi

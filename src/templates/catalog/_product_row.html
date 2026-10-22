@@ -1,0 +1,37 @@
+<tr>
+    <td><strong>#{{ forloop.counter }}</strong></td>
+    <td>
+        <div><strong>{{ product.name }}</strong></div>
+        <small style="color: var(--text-secondary);">SKU: {{ product.sku|upper }}</small>
+    </td>
+    <td>
+        <span class="badge">{{ product.category.name }}</span>
+    </td>
+    <td>${{ product.price|floatformat:2 }}</td>
+    <td>
+        {% if product.stock > 20 %}
+            <span style="color: var(--success);">{{ product.stock }} in stock</span>
+        {% elif product.stock > 0 %}
+            <span style="color: #f59e0b;">Low stock ({{ product.stock }})</span>
+        {% else %}
+            <span style="color: #ef4444;">Out of stock</span>
+        {% endif %}
+    </td>
+    <td>★ {{ product.rating|floatformat:1 }} / 5.0</td>
+    <td>
+        {% for tag in product.tags %}
+            <span class="tag">{{ tag }}</span>
+        {% empty %}
+            <span style="color: var(--text-secondary); font-size: 0.8rem;">none</span>
+        {% endfor %}
+    </td>
+    <td>
+        <small>
+        {% for key, val in product.specifications.items %}
+            <span><strong>{{ key }}:</strong> {{ val }}{% if not forloop.last %}, {% endif %}</span>
+        {% empty %}
+            -
+        {% endfor %}
+        </small>
+    </td>
+</tr>
