@@ -20,6 +20,67 @@ FLAVOR_LABELS = {
 }
 
 
+def parse_history_scaling(flavor_name):
+    csv_path = REPORTS_DIR / f"{flavor_name}_stats_history.csv"
+    if not csv_path.exists():
+        return None
+
+    rows = []
+    with open(csv_path, mode="r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            if r.get("Name") == "Aggregated" and r.get("User Count"):
+                try:
+                    u = int(r["User Count"])
+                    if u > 0 and r.get("50%") not in ("N/A", "", None):
+                        rows.append({
+                            "users": u,
+                            "p50": float(r["50%"]),
+                            "p95": float(r["95%"]),
+                            "rps": float(r.get("Requests/s", 0) or 0),
+                        })
+                except (ValueError, TypeError):
+                    continue
+
+    if not rows:
+        return None
+
+    user_levels = sorted(list({r["users"] for r in rows}))
+    if not user_levels:
+        return None
+
+    min_users = user_levels[0]
+    max_users = user_levels[-1]
+    mid_users = user_levels[len(user_levels) // 2]
+
+    def get_tier_stats(target_users):
+        matches = [r for r in rows if r["users"] == target_users]
+        if not matches:
+            return {"p50": 0.0, "p95": 0.0, "rps": 0.0}
+        avg_p50 = sum(m["p50"] for m in matches) / len(matches)
+        avg_p95 = sum(m["p95"] for m in matches) / len(matches)
+        last_rps = matches[-1]["rps"]
+        return {"p50": round(avg_p50, 1), "p95": round(avg_p95, 1), "rps": round(last_rps, 1)}
+
+    low_tier = get_tier_stats(min_users)
+    mid_tier = get_tier_stats(mid_users)
+    peak_tier = get_tier_stats(max_users)
+
+    initial_p95 = low_tier["p95"]
+    peak_p95 = peak_tier["p95"]
+    penalty_factor = round((peak_p95 / initial_p95), 2) if initial_p95 > 0 else 1.0
+
+    return {
+        "min_users": min_users,
+        "mid_users": mid_users,
+        "max_users": max_users,
+        "low": low_tier,
+        "mid": mid_tier,
+        "peak": peak_tier,
+        "penalty_factor": penalty_factor,
+    }
+
+
 def parse_flavor_stats(flavor_name):
     csv_path = REPORTS_DIR / f"{flavor_name}_stats.csv"
     if not csv_path.exists():
@@ -68,6 +129,7 @@ def parse_flavor_stats(flavor_name):
         "p99_ms": round(to_float(aggregated.get("99%")), 1),
         "max_ms": round(to_float(aggregated.get("Max Response Time")), 1),
         "routes": routes,
+        "scaling": parse_history_scaling(flavor_name),
     }
     return stats
 
@@ -113,6 +175,36 @@ def build_markdown_report(results, hurricane_version):
         bar = generate_ascii_bar(r["p95_ms"], max_p95)
         lines.append(f"{r['label']:<32} {bar} {r['p95_ms']:>8.1f} ms")
     lines.append("```\n")
+
+    # Concurrency Scaling & Penalty Section
+    scaling_results = [r for r in results if r.get("scaling")]
+    if scaling_results:
+        min_u = scaling_results[0]["scaling"]["min_users"]
+        mid_u = scaling_results[0]["scaling"]["mid_users"]
+        max_u = scaling_results[0]["scaling"]["max_users"]
+        lines.append("#### Concurrency Scaling & User Scaling Penalty")
+        lines.append(
+            f"Latency progression and degradation factor as concurrent simulated users ramp up from initial ramp (`{min_u}` users) through mid-stage (`{mid_u}` users) to peak concurrency (`{max_u}` users):\n"
+        )
+        lines.append(
+            f"| Flavor | Initial Load (~{min_u} Users) p50 / p95 | Mid Load (~{mid_u} Users) p50 / p95 | Peak Load ({max_u} Users) p50 / p95 | Latency Scaling Penalty |"
+        )
+        lines.append("| :--- | :---: | :---: | :---: | :---: |")
+        for r in scaling_results:
+            sc = r["scaling"]
+            lines.append(
+                f"| **{r['label']}** | {sc['low']['p50']} ms / {sc['low']['p95']} ms | {sc['mid']['p50']} ms / {sc['mid']['p95']} ms | {sc['peak']['p50']} ms / {sc['peak']['p95']} ms | **{sc['penalty_factor']}x** |"
+            )
+        lines.append("")
+
+        max_penalty = max(r["scaling"]["penalty_factor"] for r in scaling_results)
+        lines.append("##### Latency Inflation Factor under Load Scaling (Peak p95 vs Initial p95 - Lower is better)")
+        lines.append("```text")
+        for r in scaling_results:
+            pf = r["scaling"]["penalty_factor"]
+            bar = generate_ascii_bar(pf, max_penalty)
+            lines.append(f"{r['label']:<32} {bar} {pf:>5.2f}x penalty")
+        lines.append("```\n")
 
     # Per route analysis
     lines.append("#### Route Breakdown Across Flavors")

@@ -103,39 +103,60 @@ The GitHub Actions runner executes each flavor sequentially, writes artifact rep
 
 <!-- BENCHMARK_START -->
 
-### Latest Benchmark Results (2026-10-22 10:45:28 UTC)
+### Latest Benchmark Results (2026-10-22 11:54:10 UTC)
 **Django Hurricane Version:** `2.0.0rc1` | **PostgreSQL:** `17` | **Python:** `3.12`
 
 | Flavor | Throughput | Median (p50) | 95th (p95) | 99th (p99) | Error Rate | Requests |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **WSGI (Granian Sync)** | **55.1 req/s** | 2600.0 ms | 3000.0 ms | 3300.0 ms | 0.0% | 16,497 |
-| **ASGI (Granian Standard Async)** | **115.5 req/s** | 1400.0 ms | 1600.0 ms | 1700.0 ms | 0.0% | 34,576 |
-| **ASGI + django-async-backend** | **97.3 req/s** | 1200.0 ms | 3800.0 ms | 4100.0 ms | 0.0% | 29,147 |
+| **WSGI (Pure Sync)** | **52.1 req/s** | 710.0 ms | 1100.0 ms | 1200.0 ms | 0.0% | 468 |
+| **ASGI (Forced Sync Views)** | **75.8 req/s** | 510.0 ms | 670.0 ms | 710.0 ms | 0.0% | 682 |
+| **ASGI (Clean Async Views)** | **76.1 req/s** | 460.0 ms | 680.0 ms | 770.0 ms | 0.0% | 685 |
+| **ASGI + django-async-backend** | **72.8 req/s** | 480.0 ms | 610.0 ms | 690.0 ms | 0.0% | 656 |
 
 #### Throughput (Requests per Second - Higher is better)
 ```text
-WSGI (Granian Sync)              [███████████████                 ]     55.1 req/s
-ASGI (Granian Standard Async)    [████████████████████████████████]    115.5 req/s
-ASGI + django-async-backend      [███████████████████████████     ]     97.3 req/s
+WSGI (Pure Sync)                 [██████████████████████          ]     52.1 req/s
+ASGI (Forced Sync Views)         [████████████████████████████████]     75.8 req/s
+ASGI (Clean Async Views)         [████████████████████████████████]     76.1 req/s
+ASGI + django-async-backend      [███████████████████████████████ ]     72.8 req/s
 ```
 
 #### 95th Percentile Latency (Lower is better)
 ```text
-WSGI (Granian Sync)              [█████████████████████████       ]   3000.0 ms
-ASGI (Granian Standard Async)    [█████████████                   ]   1600.0 ms
-ASGI + django-async-backend      [████████████████████████████████]   3800.0 ms
+WSGI (Pure Sync)                 [████████████████████████████████]   1100.0 ms
+ASGI (Forced Sync Views)         [███████████████████             ]    670.0 ms
+ASGI (Clean Async Views)         [████████████████████            ]    680.0 ms
+ASGI + django-async-backend      [██████████████████              ]    610.0 ms
+```
+
+#### Concurrency Scaling & User Scaling Penalty
+Latency progression and degradation factor as concurrent simulated users ramp up from initial ramp (`15` users) through mid-stage (`45` users) to peak concurrency (`50` users):
+
+| Flavor | Initial Load (~15 Users) p50 / p95 | Mid Load (~45 Users) p50 / p95 | Peak Load (50 Users) p50 / p95 | Latency Scaling Penalty |
+| :--- | :---: | :---: | :---: | :---: |
+| **WSGI (Pure Sync)** | 110.0 ms / 220.0 ms | 270.0 ms / 620.0 ms | 565.0 ms / 1023.3 ms | **4.65x** |
+| **ASGI (Forced Sync Views)** | 87.0 ms / 260.0 ms | 260.0 ms / 660.0 ms | 435.0 ms / 675.0 ms | **2.6x** |
+| **ASGI (Clean Async Views)** | 110.0 ms / 310.0 ms | 270.0 ms / 750.0 ms | 425.0 ms / 696.7 ms | **2.25x** |
+| **ASGI + django-async-backend** | 140.0 ms / 210.0 ms | 310.0 ms / 680.0 ms | 448.3 ms / 638.3 ms | **3.04x** |
+
+##### Latency Inflation Factor under Load Scaling (Peak p95 vs Initial p95 - Lower is better)
+```text
+WSGI (Pure Sync)                 [████████████████████████████████]  4.65x penalty
+ASGI (Forced Sync Views)         [██████████████████              ]  2.60x penalty
+ASGI (Clean Async Views)         [███████████████                 ]  2.25x penalty
+ASGI + django-async-backend      [█████████████████████           ]  3.04x penalty
 ```
 
 #### Route Breakdown Across Flavors
-| Route | WSGI (Granian Sync) (p95 / RPS) | ASGI (Granian Standard Async) (p95 / RPS) | ASGI + django-async-backend (p95 / RPS) |
-| :--- | :---: | :---: | :---: |
-| `/api/auth/login` | 2000.0 ms (0.5 rps) | 1600.0 ms (0.5 rps) | 1600.0 ms (0.5 rps) |
-| `/api/auth/me [GET]` | 3000.0 ms (2.8 rps) | 1600.0 ms (5.9 rps) | 1300.0 ms (4.9 rps) |
-| `/api/items [GET]` | 3000.0 ms (16.3 rps) | 1600.0 ms (34.6 rps) | 1300.0 ms (28.4 rps) |
-| `/api/items [POST]` | 3100.0 ms (2.7 rps) | 1600.0 ms (5.6 rps) | 1400.0 ms (4.7 rps) |
-| `/catalog/render [GET]` | 3000.0 ms (11.4 rps) | 1600.0 ms (23.4 rps) | 4100.0 ms (19.5 rps) |
-| `/catalog/search [GET]` | 3100.0 ms (8.1 rps) | 1600.0 ms (17.2 rps) | 1400.0 ms (14.4 rps) |
-| `/external/fetch [GET]` | 3100.0 ms (13.4 rps) | 190.0 ms (28.2 rps) | 1600.0 ms (25.0 rps) |
+| Route | WSGI (Pure Sync) (p95 / RPS) | ASGI (Forced Sync Views) (p95 / RPS) | ASGI (Clean Async Views) (p95 / RPS) | ASGI + django-async-backend (p95 / RPS) |
+| :--- | :---: | :---: | :---: | :---: |
+| `/api/auth/login` | 760.0 ms (5.6 rps) | 770.0 ms (5.6 rps) | 800.0 ms (5.6 rps) | 700.0 ms (5.5 rps) |
+| `/api/auth/me [GET]` | 1100.0 ms (3.6 rps) | 670.0 ms (3.0 rps) | 680.0 ms (3.8 rps) | 510.0 ms (3.8 rps) |
+| `/api/items [GET]` | 1100.0 ms (15.0 rps) | 670.0 ms (20.5 rps) | 680.0 ms (21.1 rps) | 570.0 ms (19.6 rps) |
+| `/api/items [POST]` | 1200.0 ms (1.9 rps) | 690.0 ms (4.3 rps) | 730.0 ms (4.4 rps) | 570.0 ms (3.9 rps) |
+| `/catalog/render [GET]` | 1100.0 ms (9.5 rps) | 670.0 ms (15.8 rps) | 690.0 ms (14.0 rps) | 600.0 ms (12.5 rps) |
+| `/catalog/search [GET]` | 1200.0 ms (6.7 rps) | 660.0 ms (9.3 rps) | 670.0 ms (11.2 rps) | 570.0 ms (9.9 rps) |
+| `/external/fetch [GET]` | 1200.0 ms (9.9 rps) | 230.0 ms (17.3 rps) | 240.0 ms (16.0 rps) | 630.0 ms (17.5 rps) |
 
 #### Architectural Takeaways & Recommendation
 - **WSGI (Pure Sync)**: Legacy baseline. Under concurrent traffic mixing database queries and external I/O, synchronous worker threads block. Queue buildup degrades performance across all routes.
