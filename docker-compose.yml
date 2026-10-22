@@ -137,6 +137,32 @@ services:
       fake-api:
         condition: service_healthy
 
+  django-asgi-auto:
+    build:
+      context: .
+      args:
+        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc1}
+    container_name: bench-django-asgi-auto
+    profiles: ["asgi-auto", "all"]
+    environment:
+      - HURRICANE_MODE=asgi
+      - HURRICANE_NO_RATE_LIMIT=true
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-benchdb}
+      - DB_USER=${DB_USER:-benchuser}
+      - DB_PASSWORD=${DB_PASSWORD:-benchpass}
+      - FAKE_API_URL=http://fake-api:8080
+      - DJANGO_SETTINGS_MODULE=config.settings
+    command: ["python", "manage.py", "serve", "--mode", "asgi", "--port", "8000", "--probe-port", "8000", "--no-rate-limit"]
+    ports:
+      - "8006:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fake-api:
+        condition: service_healthy
+
   django-asgi-async:
     build:
       context: .
@@ -171,6 +197,7 @@ services:
     environment:
       - TARGET_HOST=${TARGET_HOST:-http://django-wsgi:8000}
     volumes:
+      - ./benchmark:/locust
       - ./reports:/reports
     depends_on:
       postgres:

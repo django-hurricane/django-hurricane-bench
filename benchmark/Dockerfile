@@ -5,6 +5,6 @@ WORKDIR /locust
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY locustfile.py .
+COPY locustfile.py shapes.py ./
 
 ENTRYPOINT ["locust"]

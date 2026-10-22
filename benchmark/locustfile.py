@@ -4,6 +4,16 @@ import random
 import time
 from locust import HttpUser, between, task
 
+# Conditionally activate step-up load shape unless explicitly disabled (e.g. during warmup)
+if os.environ.get("USE_STEP_LOAD", "1").lower() in ("1", "true", "yes"):
+    try:
+        from shapes import StepLoadShape  # noqa: F401
+    except ImportError:
+        try:
+            from benchmark.shapes import StepLoadShape  # noqa: F401
+        except ImportError:
+            pass
+
 
 class DjangoHurricaneBenchUser(HttpUser):
     wait_time = between(0.05, 0.25)
@@ -37,7 +47,7 @@ class DjangoHurricaneBenchUser(HttpUser):
             timeout=15.0,
         )
 
-    @task(25)
+    @task(20)
     def external_delay(self):
         """Benchmark non-blocking vs blocking handling of slow third-party API."""
         min_ms = random.randint(20, 40)
@@ -95,3 +105,8 @@ class DjangoHurricaneBenchUser(HttpUser):
                 resp.failure("Session expired or missing - re-authenticating")
             else:
                 resp.success()
+
+    @task(5)
+    def auth_login_task(self):
+        """Continuously benchmark session authentication and cookie signing under steady-state load."""
+        self._login()

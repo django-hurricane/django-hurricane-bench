@@ -33,6 +33,7 @@ on:
           - django-wsgi-auto
           - django-asgi-sync
           - django-asgi
+          - django-asgi-auto
           - django-asgi-async
         default: 'all'
 
@@ -62,7 +63,7 @@ jobs:
         run: |
           FLAVORS="${{ inputs.flavor_selection }}"
           if [ "$FLAVORS" = "all" ]; then
-            export BENCH_FLAVORS="django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-async"
+            export BENCH_FLAVORS="django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-auto django-asgi-async"
           else
             export BENCH_FLAVORS="$FLAVORS"
           fi

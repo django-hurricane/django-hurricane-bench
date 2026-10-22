@@ -24,6 +24,15 @@ class TestUpdateReadme(unittest.TestCase):
         bar_zero = generate_ascii_bar(0, 100, bar_width=10)
         self.assertEqual(bar_zero, "[          ]")
 
+    def test_flavor_labels(self):
+        self.assertIn("django-wsgi", FLAVOR_LABELS)
+        self.assertIn("django-wsgi-auto", FLAVOR_LABELS)
+        self.assertIn("django-asgi", FLAVOR_LABELS)
+        self.assertIn("django-asgi-auto", FLAVOR_LABELS)
+        self.assertIn("django-asgi-sync", FLAVOR_LABELS)
+        self.assertIn("django-asgi-async", FLAVOR_LABELS)
+        self.assertEqual(FLAVOR_LABELS["django-asgi-auto"], "ASGI (Auto Threads / Clean Async)")
+
     def test_build_markdown_report(self):
         sample_results = [
             {
@@ -53,7 +62,7 @@ class TestUpdateReadme(unittest.TestCase):
             },
             {
                 "flavor": "django-asgi",
-                "label": "ASGI (Clean Async Views)",
+                "label": "ASGI (Clean Async / Single Thread)",
                 "total_requests": 3000,
                 "failures": 0,
                 "error_rate": 0.0,
@@ -76,13 +85,40 @@ class TestUpdateReadme(unittest.TestCase):
                     "penalty_factor": 2.11,
                 },
             },
+            {
+                "flavor": "django-asgi-auto",
+                "label": "ASGI (Auto Threads / Clean Async)",
+                "total_requests": 3800,
+                "failures": 0,
+                "error_rate": 0.0,
+                "rps": 950.0,
+                "median_ms": 6.0,
+                "p90_ms": 18.0,
+                "p95_ms": 30.0,
+                "p99_ms": 70.0,
+                "max_ms": 150.0,
+                "routes": [
+                    {"Name": "/catalog/render [GET]", "95%": "25.0", "Requests/s": "320.0"}
+                ],
+                "scaling": {
+                    "min_users": 15,
+                    "mid_users": 30,
+                    "max_users": 50,
+                    "low": {"p50": 6.0, "p95": 14.0, "rps": 150.0},
+                    "mid": {"p50": 10.0, "p95": 20.0, "rps": 400.0},
+                    "peak": {"p50": 16.0, "p95": 28.0, "rps": 950.0},
+                    "penalty_factor": 2.0,
+                },
+            },
         ]
         markdown = build_markdown_report(sample_results, "2.0.0rc1")
         self.assertIn("Latest Benchmark Results", markdown)
         self.assertIn("WSGI (Pure Sync)", markdown)
-        self.assertIn("ASGI (Clean Async Views)", markdown)
+        self.assertIn("ASGI (Clean Async / Single Thread)", markdown)
+        self.assertIn("ASGI (Auto Threads / Clean Async)", markdown)
         self.assertIn("320.5 req/s", markdown)
         self.assertIn("750.0 req/s", markdown)
+        self.assertIn("950.0 req/s", markdown)
         self.assertIn("Concurrency Scaling & User Scaling Penalty", markdown)
         self.assertIn("Latency Inflation Factor", markdown)
 

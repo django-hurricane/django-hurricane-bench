@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 from decimal import Decimal
 from asgiref.sync import sync_to_async
@@ -21,20 +22,35 @@ from apps.bench.models import Category, Product
 IS_WSGI = os.environ.get("HURRICANE_MODE", "").lower() == "wsgi"
 FORCE_SYNC_VIEWS = os.environ.get("FORCE_SYNC_VIEWS", "0").lower() in ("1", "true", "yes")
 
+
+def get_product_manager():
+    """Returns Product.async_objects when running under django-async-backend, else standard manager."""
+    if getattr(settings, "IS_ASYNC_BACKEND", False) and hasattr(Product, "async_objects"):
+        return Product.async_objects
+    return Product.objects
+
+
+def get_category_manager():
+    """Returns Category.async_objects when running under django-async-backend, else standard manager."""
+    if getattr(settings, "IS_ASYNC_BACKEND", False) and hasattr(Category, "async_objects"):
+        return Category.async_objects
+    return Category.objects
+
 # ---------------------------------------------------------------------------
 # Persistent Connection-Pooled HTTP Clients
 # ---------------------------------------------------------------------------
 
-_sync_session = None
+_sync_session_local = threading.local()
 
 def get_sync_session():
-    global _sync_session
-    if _sync_session is None:
-        _sync_session = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(pool_connections=50, pool_maxsize=200)
-        _sync_session.mount("http://", adapter)
-        _sync_session.mount("https://", adapter)
-    return _sync_session
+    session = getattr(_sync_session_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=50)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        _sync_session_local.session = session
+    return session
 
 
 _async_client = None
@@ -107,13 +123,28 @@ async def auth_login_async(request):
     return JsonResponse({"error": "Invalid credentials"}, status=401)
 
 
-def auth_me(request):
-    """Verifies session and auth middleware validation."""
+def auth_me_sync(request):
+    """Verifies session and auth middleware validation synchronously."""
     if request.user.is_authenticated:
         return JsonResponse({
             "authenticated": True,
             "username": request.user.username,
             "email": request.user.email,
+        })
+    return JsonResponse({"authenticated": False}, status=401)
+
+
+async def auth_me_async(request):
+    """Verifies session and auth middleware validation asynchronously."""
+    if hasattr(request, "auser"):
+        user = await request.auser()
+    else:
+        user = request.user
+    if user.is_authenticated:
+        return JsonResponse({
+            "authenticated": True,
+            "username": user.username,
+            "email": user.email,
         })
     return JsonResponse({"authenticated": False}, status=401)
 
@@ -155,14 +186,17 @@ def catalog_render_sync(request):
 async def catalog_render_async(request):
     """Asynchronous template rendering: gathers data asynchronously and renders concurrently."""
     limit = int(request.GET.get("limit", 25))
+    prod_mgr = get_product_manager()
+    cat_mgr = get_category_manager()
+
     qs = (
-        Product.objects.filter(is_active=True)
+        prod_mgr.filter(is_active=True)
         .select_related("category")
         .order_by("-created_at")[:limit]
     )
     products = [p async for p in qs]
 
-    cat_qs = Category.objects.annotate(prod_count=Count("products"))
+    cat_qs = cat_mgr.annotate(prod_count=Count("products"))
     categories = [c async for c in cat_qs]
 
     total_stock = sum(p.stock for p in products)
@@ -184,8 +218,8 @@ async def catalog_render_async(request):
         "timestamp": time.time(),
     }
 
-    # Offload CPU-heavy DTL rendering to threadpool concurrently without blocking the main event loop
-    html_content = await render_template_async("catalog/render.html", context)
+    # Offload CPU-heavy DTL rendering to threadpool concurrently, passing request for context processors
+    html_content = await render_template_async("catalog/render.html", context, request=request)
     return HttpResponse(html_content, content_type="text/html")
 
 
@@ -262,11 +296,14 @@ def items_api_sync(request):
 
 @csrf_exempt
 async def items_api_async(request):
+    prod_mgr = get_product_manager()
+    cat_mgr = get_category_manager()
+
     if request.method == "GET":
         limit = min(int(request.GET.get("limit", 25)), 100)
         offset = int(request.GET.get("offset", 0))
 
-        qs = Product.objects.filter(is_active=True).select_related("category")
+        qs = prod_mgr.filter(is_active=True).select_related("category")
         total = await qs.acount()
         items = []
         async for p in qs[offset : offset + limit]:
@@ -287,14 +324,14 @@ async def items_api_async(request):
 
         category_id = payload.get("category_id")
         if not category_id:
-            category = await Category.objects.afirst()
+            category = await cat_mgr.afirst()
         else:
-            category = await Category.objects.filter(id=category_id).afirst()
+            category = await cat_mgr.filter(id=category_id).afirst()
             if not category:
                 return JsonResponse({"error": "Category not found"}, status=404)
 
         sku = payload.get("sku") or f"SKU-{int(time.time() * 1000)}-{os.urandom(2).hex()}"
-        product = await Product.objects.acreate(
+        product = await prod_mgr.acreate(
             category=category,
             sku=sku,
             name=payload.get("name", "Benchmark Sample Product"),
@@ -403,10 +440,12 @@ def catalog_search_sync(request):
 
 
 async def catalog_search_async(request):
+    prod_mgr = get_product_manager()
+
     query = request.GET.get("q", "").strip()
     category_slug = request.GET.get("category", "").strip()
 
-    qs = Product.objects.filter(is_active=True).select_related("category")
+    qs = prod_mgr.filter(is_active=True).select_related("category")
     if query:
         qs = qs.filter(Q(name__icontains=query) | Q(description__icontains=query))
     if category_slug:
@@ -457,12 +496,14 @@ def health_check(request):
 
 if IS_WSGI or FORCE_SYNC_VIEWS:
     auth_login = auth_login_sync
+    auth_me = auth_me_sync
     catalog_render = catalog_render_sync
     items_api = items_api_sync
     external_fetch = external_fetch_sync
     catalog_search = catalog_search_sync
 else:
     auth_login = auth_login_async
+    auth_me = auth_me_async
     catalog_render = catalog_render_async
     items_api = items_api_async
     external_fetch = external_fetch_async

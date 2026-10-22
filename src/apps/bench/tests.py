@@ -108,7 +108,12 @@ class BenchmarkViewsTestCase(TestCase):
         self.assertEqual(len(data["results"]), 1)
 
     async def test_async_views(self):
-        from apps.bench.views import items_api_async, catalog_search_async
+        from apps.bench.views import (
+            auth_me_async,
+            catalog_render_async,
+            catalog_search_async,
+            items_api_async,
+        )
         from django.test import RequestFactory
         factory = RequestFactory()
 
@@ -119,9 +124,76 @@ class BenchmarkViewsTestCase(TestCase):
         data_get = json.loads(response_get.content.decode("utf-8"))
         self.assertGreaterEqual(data_get["total"], 1)
 
+        # Test items_api_async POST
+        payload = {
+            "name": "Async Benchmark Item",
+            "sku": "SKU-ASYNC-003",
+            "category_id": self.category.id,
+            "price": "129.99",
+            "stock": 15,
+            "rating": 4.9,
+            "tags": ["async", "test"],
+            "specifications": {"vcpus": "8"},
+        }
+        request_post = factory.post(
+            "/api/items",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        response_post = await items_api_async(request_post)
+        self.assertEqual(response_post.status_code, 201)
+        data_post = json.loads(response_post.content.decode("utf-8"))
+        self.assertEqual(data_post["sku"], "SKU-ASYNC-003")
+
         # Test catalog_search_async
         request_search = factory.get("/catalog/search?q=Node")
         response_search = await catalog_search_async(request_search)
         self.assertEqual(response_search.status_code, 200)
         data_search = json.loads(response_search.content.decode("utf-8"))
         self.assertEqual(data_search["aggregates"]["total_items"], 1)
+
+        # Test catalog_render_async
+        request_render = factory.get("/catalog/render")
+        response_render = await catalog_render_async(request_render)
+        self.assertEqual(response_render.status_code, 200)
+        self.assertIn("Enterprise Product Showcase", response_render.content.decode("utf-8"))
+
+        # Test auth_me_async (unauthenticated)
+        request_me = factory.get("/api/auth/me")
+        from django.contrib.auth.models import AnonymousUser
+        request_me.user = AnonymousUser()
+        response_me = await auth_me_async(request_me)
+        self.assertEqual(response_me.status_code, 401)
+
+        # Test auth_me_async (authenticated)
+        request_me.user = self.user
+        response_me_auth = await auth_me_async(request_me)
+        self.assertEqual(response_me_auth.status_code, 200)
+        data_me = json.loads(response_me_auth.content.decode("utf-8"))
+        self.assertTrue(data_me["authenticated"])
+        self.assertEqual(data_me["username"], "benchuser")
+
+    def test_sync_session_thread_local(self):
+        import threading
+        from apps.bench.views import get_sync_session
+
+        sessions = []
+        def worker():
+            s = get_sync_session()
+            sessions.append(s)
+
+        threads = [threading.Thread(target=worker) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Different threads must have distinct requests.Session instances
+        self.assertEqual(len(set(sessions)), 3)
+
+    def test_manager_resolution(self):
+        from apps.bench.views import get_product_manager, get_category_manager
+        prod_mgr = get_product_manager()
+        cat_mgr = get_category_manager()
+        self.assertIsNotNone(prod_mgr)
+        self.assertIsNotNone(cat_mgr)

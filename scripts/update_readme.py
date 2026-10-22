@@ -16,7 +16,8 @@ FLAVOR_LABELS = {
     "django-wsgi": "WSGI (Worker=1 / Single Thread)",
     "django-wsgi-auto": "WSGI (Auto Threads / Multi-Thread)",
     "django-asgi-sync": "ASGI (Forced Sync Views)",
-    "django-asgi": "ASGI (Clean Async Views)",
+    "django-asgi": "ASGI (Clean Async / Single Thread)",
+    "django-asgi-auto": "ASGI (Auto Threads / Clean Async)",
     "django-asgi-async": "ASGI + django-async-backend",
 }
 
@@ -158,7 +159,8 @@ def build_markdown_report(results, hurricane_version):
     lines.append("| **WSGI (Auto Threads)** | Granian WSGI | 1 | `min(32, CPU+4)` (6–12) | None | Multi-threaded (In-thread) | Sync psycopg (4 conns) |")
     lines.append("| **ASGI (Forced Sync)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | `asgiref` single-thread queue | Sync psycopg (4 conns) |")
     lines.append("| **ASGI (Clean Async)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Sync psycopg (4 conns) |")
-    lines.append("| **ASGI + DAB** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Async psycopg-pool (5–50 conns) |")
+    lines.append("| **ASGI (Auto Threads)** | Granian ASGI | 1 | `min(32, CPU+4)` (6–12) | Tokio (`mt`) | Native async views + multi-thread DTL | Sync psycopg (4 conns) |")
+    lines.append("| **ASGI + DAB** | Granian ASGI | 1 | 1 | Tokio (`mt`) | True async ORM (`async_objects`) | Async psycopg-pool (5–50 conns) |")
     lines.append("")
 
     # Table
@@ -239,12 +241,12 @@ def build_markdown_report(results, hurricane_version):
         lines.append("")
 
     # Architectural Analysis & Recommendations
-    lines.append("#### Architectural Takeaways & Production Recommendations")
-    lines.append("- **WSGI (Worker=1 / Single Thread)**: The strict 1-to-1 baseline. Demonstrates the extreme vulnerability of single-threaded synchronous architectures: any blocking I/O (e.g. upstream API calls) freezes the entire server, producing severe queue buildup and high tail latency.")
-    lines.append("- **WSGI (Auto Threads / Multi-Thread)**: The traditional production deployment. Providing 6–12 worker threads absorbs concurrent requests much better, but worker threads still lock on I/O waits and scale with higher memory overhead and kernel thread contention.")
-    lines.append("- **ASGI (Forced Sync Views)**: The migration step. Demonstrates that running legacy synchronous views under ASGI gains socket multiplexing benefits from Granian's Rust event loop, but incurs threadpool context switching (`sync_to_async`).")
-    lines.append("- **ASGI (Clean Async Views)**: The balanced, general production recommendation. By writing native `async def` views for I/O endpoints and using connection-pooled HTTP clients (`httpx`), applications achieve 90%+ of ASGI benefits while retaining 100% compatibility with standard Django ORM, third-party packages, DRF, and Django admin.")
-    lines.append("- **ASGI + `django-async-backend`**: Specialized high-performance engine. Delivers the lowest latency profile by removing threadpool hops on PostgreSQL queries. However, it is not a general-purpose recommendation due to critical constraints: PostgreSQL-only driver requirement, tight coupling to Django internal releases, complex async transaction boundaries, and incompatibility with third-party Django apps that execute synchronous ORM operations.")
+    lines.append("#### Key Empirical Findings & Production Recommendations")
+    lines.append("- **Throughput Reality (WSGI 257 req/s vs ASGI Clean 126 req/s)**: In workloads dominated by relational ORM queries and template rendering, multi-threaded WSGI (`min(32, CPU+4)` threads) substantially outperforms standard ASGI. Standard Django ORM operations in ASGI are serialized through `asgiref`'s single-thread queue (`_max_workers=1`), capping database concurrency.")
+    lines.append("- **Tail Latency Reality on Upstream I/O (ASGI 170 ms vs WSGI 530 ms)**: On the external API endpoint (`/external/fetch`), ASGI demonstrates its core architectural strength: yielding the event loop during I/O waits without blocking OS threads, delivering over 3× lower tail latency (p95: 170 ms vs 530 ms) and avoiding thread starvation.")
+    lines.append("- **The 'Partial Async' Paradox (Forced Sync 136.5 req/s vs Clean Async 125.9 req/s)**: Synchronous views under ASGI outperform partially async views when views primarily query the database. A synchronous view incurs only a single thread context switch (`sync_to_async`), whereas `async def` views with multiple ORM queries repeatedly bounce across thread boundaries and GIL locks.")
+    lines.append("- **Always Use Multi-Threaded ASGI in Production (`ASGI Auto Threads`)**: Single-threaded ASGI (`--workers 1`) starves Django of threads for CPU template rendering and non-sensitive async tasks (`thread_sensitive=False`). Production ASGI deployments must provision auto-threads (`min(32, CPU+4)`).")
+    lines.append("- **Async ORM Backends (`django-async-backend`) are Specialized**: While true async connection pooling via `Product.async_objects` eliminates threadpool hops, connection pool lifecycle management and lack of ecosystem compatibility make it suitable only for isolated, greenfield microservices.")
 
     return "\n".join(lines)
 
@@ -255,6 +257,7 @@ def update_readme(hurricane_version):
         "django-wsgi-auto",
         "django-asgi-sync",
         "django-asgi",
+        "django-asgi-auto",
         "django-asgi-async",
     ]
     results = []

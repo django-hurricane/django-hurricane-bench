@@ -5,7 +5,7 @@ HURRICANE_VERSION="${HURRICANE_VERSION:-2.0.0rc1}"
 BENCH_USERS="${BENCH_USERS:-150}"
 BENCH_SPAWN_RATE="${BENCH_SPAWN_RATE:-25}"
 BENCH_DURATION="${BENCH_DURATION:-45s}"
-BENCH_FLAVORS="${BENCH_FLAVORS:-django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-async}"
+BENCH_FLAVORS="${BENCH_FLAVORS:-django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-auto django-asgi-async}"
 
 echo "======================================================================"
 echo " Starting Django Hurricane Benchmark Suite"
@@ -39,6 +39,9 @@ for flavor in ${BENCH_FLAVORS}; do
     echo " [BENCHMARK] Executing Scenario: ${flavor}"
     echo "======================================================================"
 
+    echo "--> Resetting and seeding database for ${flavor} to guarantee clean initial state..."
+    docker compose run --rm django-wsgi python manage.py seed_db --force
+
     # Start target container
     docker compose up -d "${flavor}"
 
@@ -62,13 +65,13 @@ for flavor in ${BENCH_FLAVORS}; do
 
     # Warmup traffic (5 seconds)
     echo "--> Warming up ${flavor} (5s)..."
-    docker compose run --rm -e TARGET_HOST="http://${flavor}:8000" locust \
+    docker compose run --rm -e TARGET_HOST="http://${flavor}:8000" -e USE_STEP_LOAD="false" locust \
         -f locustfile.py --headless -H "http://${flavor}:8000" \
         -u 20 -r 10 --run-time 5s --exit-code-on-error 0 > /dev/null 2>&1 || true
 
     # Benchmark run
     echo "--> Running Locust load test against ${flavor}..."
-    docker compose run --rm -e TARGET_HOST="http://${flavor}:8000" locust \
+    docker compose run --rm -e TARGET_HOST="http://${flavor}:8000" -e BENCH_USERS="${BENCH_USERS}" -e BENCH_DURATION="${BENCH_DURATION}" locust \
         -f locustfile.py --headless -H "http://${flavor}:8000" \
         -u "${BENCH_USERS}" -r "${BENCH_SPAWN_RATE}" \
         --run-time "${BENCH_DURATION}" \
