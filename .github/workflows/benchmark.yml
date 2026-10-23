@@ -23,6 +23,19 @@ on:
         required: true
         default: '45s'
         type: string
+      bench_workload:
+        description: 'Workload(s) to benchmark (mixed, all, or specific endpoint)'
+        required: true
+        type: choice
+        options:
+          - mixed
+          - all
+          - gateway_aggregate
+          - catalog_render
+          - external_fetch
+          - items_get
+          - catalog_search
+        default: 'mixed'
       flavor_selection:
         description: 'Deployment scenarios to evaluate'
         required: true
@@ -72,6 +85,7 @@ jobs:
           export BENCH_USERS="${{ inputs.bench_users }}"
           export BENCH_SPAWN_RATE="${{ inputs.bench_spawn_rate }}"
           export BENCH_DURATION="${{ inputs.bench_duration }}"
+          export BENCH_WORKLOADS="${{ inputs.bench_workload }}"
 
           ./scripts/run_benchmark.sh
 
@@ -82,14 +96,14 @@ jobs:
           name: benchmark-reports-${{ inputs.hurricane_version }}
           path: reports/
 
-      - name: Commit Updated README.md
+      - name: Commit Updated README.md & Archive
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action Benchmark Runner"
-          git add README.md
+          git add README.md archive/
           if git diff --staged --quiet; then
-            echo "No changes to README.md"
+            echo "No changes to README.md or archive/"
           else
-            git commit -m "docs(bench): update benchmark results for django-hurricane==${{ inputs.hurricane_version }} [skip ci]"
+            git commit -m "docs(bench): update benchmark results & archive for django-hurricane==${{ inputs.hurricane_version }} [skip ci]"
             git push
           fi

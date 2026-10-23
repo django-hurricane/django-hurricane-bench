@@ -15,7 +15,8 @@ if os.environ.get("USE_STEP_LOAD", "1").lower() in ("1", "true", "yes"):
             pass
 
 
-class DjangoHurricaneBenchUser(HttpUser):
+class BaseBenchUser(HttpUser):
+    abstract = True
     wait_time = between(0.05, 0.25)
 
     def on_start(self):
@@ -37,6 +38,12 @@ class DjangoHurricaneBenchUser(HttpUser):
         except Exception:
             return False
 
+
+# ---------------------------------------------------------------------------
+# 1. Mixed Workload (Realistic production distribution across all endpoints)
+# ---------------------------------------------------------------------------
+
+class MixedWorkloadUser(BaseBenchUser):
     @task(25)
     def gateway_aggregate(self):
         """Benchmark API Gateway / BFF fan-out: sequential blocking in WSGI vs asyncio.gather in ASGI."""
@@ -120,3 +127,127 @@ class DjangoHurricaneBenchUser(HttpUser):
     def auth_login_task(self):
         """Continuously benchmark session authentication and cookie signing under steady-state load."""
         self._login()
+
+
+# ---------------------------------------------------------------------------
+# 2. Isolated Workloads (Calling each endpoint in isolation without cross-talk)
+# ---------------------------------------------------------------------------
+
+class GatewayAggregateWorkloadUser(BaseBenchUser):
+    """Isolated workload: 100% traffic targeting /api/gateway/aggregate."""
+    @task
+    def gateway_aggregate(self):
+        sku = random.choice(["SKU-CLOUD-01", "SKU-NODE-02", "SKU-SCALE-03"])
+        self.client.get(
+            f"/api/gateway/aggregate?user_id=benchuser&sku={sku}",
+            name="/api/gateway/aggregate [GET]",
+            timeout=15.0,
+        )
+
+
+class ExternalFetchWorkloadUser(BaseBenchUser):
+    """Isolated workload: 100% traffic targeting /external/fetch."""
+    @task
+    def external_delay(self):
+        min_ms = random.randint(20, 40)
+        max_ms = random.randint(50, 100)
+        self.client.get(
+            f"/external/fetch?min={min_ms}&max={max_ms}",
+            name="/external/fetch [GET]",
+            timeout=15.0,
+        )
+
+
+class CatalogRenderWorkloadUser(BaseBenchUser):
+    """Isolated workload: 100% traffic targeting /catalog/render (DTL template engine)."""
+    @task
+    def catalog_render(self):
+        limit = random.choice([15, 25])
+        self.client.get(
+            f"/catalog/render?limit={limit}",
+            name="/catalog/render [GET]",
+            timeout=15.0,
+        )
+
+
+class ItemsGetWorkloadUser(BaseBenchUser):
+    """Isolated workload: 100% traffic targeting /api/items [GET] (ORM serialization)."""
+    @task
+    def items_api_get(self):
+        offset = random.choice([0, 25, 50])
+        self.client.get(
+            f"/api/items?limit=25&offset={offset}",
+            name="/api/items [GET]",
+            timeout=15.0,
+        )
+
+
+class ItemsPostWorkloadUser(BaseBenchUser):
+    """Isolated workload: 100% traffic targeting /api/items [POST] (ORM inserts)."""
+    @task
+    def items_api_post(self):
+        payload = {
+            "name": f"Locust Bench Item {random.randint(1000, 99999)}",
+            "price": f"{round(random.uniform(19.99, 499.99), 2)}",
+            "stock": random.randint(10, 100),
+            "rating": round(random.uniform(3.0, 5.0), 1),
+            "tags": ["locust", "bench", "synthetic"],
+            "specifications": {"vcpus": "4", "ram": "16GB", "runner": "locust"},
+        }
+        self.client.post(
+            "/api/items",
+            json=payload,
+            name="/api/items [POST]",
+            timeout=15.0,
+        )
+
+
+class CatalogSearchWorkloadUser(BaseBenchUser):
+    """Isolated workload: 100% traffic targeting /catalog/search (PostgreSQL queries & aggregates)."""
+    @task
+    def catalog_search(self):
+        query = random.choice(["compute", "engine", "scale", "managed", "cloud"])
+        self.client.get(
+            f"/catalog/search?q={query}",
+            name="/catalog/search [GET]",
+            timeout=15.0,
+        )
+
+
+class AuthWorkloadUser(BaseBenchUser):
+    """Isolated workload: 100% traffic targeting authentication & session check."""
+    @task(3)
+    def auth_login(self):
+        self._login()
+
+    @task(7)
+    def auth_me(self):
+        self.client.get(
+            "/api/auth/me",
+            name="/api/auth/me [GET]",
+            timeout=15.0,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Workload Mapping & Dynamic Default Class
+# ---------------------------------------------------------------------------
+
+WORKLOAD_MAP = {
+    "mixed": MixedWorkloadUser,
+    "gateway_aggregate": GatewayAggregateWorkloadUser,
+    "catalog_render": CatalogRenderWorkloadUser,
+    "external_fetch": ExternalFetchWorkloadUser,
+    "items_get": ItemsGetWorkloadUser,
+    "items_post": ItemsPostWorkloadUser,
+    "catalog_search": CatalogSearchWorkloadUser,
+    "auth": AuthWorkloadUser,
+}
+
+_selected = os.environ.get("BENCH_WORKLOAD", "mixed").strip().lower()
+_ResolvedUser = WORKLOAD_MAP.get(_selected, MixedWorkloadUser)
+
+
+class DjangoHurricaneBenchUser(_ResolvedUser):
+    """Dynamic benchmark user adapting to BENCH_WORKLOAD environment variable (default: mixed)."""
+    pass

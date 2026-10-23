@@ -6,6 +6,11 @@ BENCH_USERS="${BENCH_USERS:-150}"
 BENCH_SPAWN_RATE="${BENCH_SPAWN_RATE:-25}"
 BENCH_DURATION="${BENCH_DURATION:-45s}"
 BENCH_FLAVORS="${BENCH_FLAVORS:-django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-auto django-asgi-async}"
+BENCH_WORKLOADS="${BENCH_WORKLOADS:-mixed}"
+
+if [ "${BENCH_WORKLOADS}" = "all" ]; then
+    BENCH_WORKLOADS="mixed gateway_aggregate catalog_render external_fetch items_get catalog_search"
+fi
 
 echo "======================================================================"
 echo " Starting Django Hurricane Benchmark Suite"
@@ -14,6 +19,7 @@ echo " Concurrent Users:         ${BENCH_USERS}"
 echo " Spawn Rate:               ${BENCH_SPAWN_RATE} users/sec"
 echo " Duration per Scenario:    ${BENCH_DURATION}"
 echo " Scenarios:                ${BENCH_FLAVORS}"
+echo " Workloads:                ${BENCH_WORKLOADS}"
 echo "======================================================================"
 
 mkdir -p reports
@@ -69,14 +75,26 @@ for flavor in ${BENCH_FLAVORS}; do
         -f locustfile.py --headless -H "http://${flavor}:8000" \
         -u 20 -r 10 --run-time 5s --exit-code-on-error 0 > /dev/null 2>&1 || true
 
-    # Benchmark run
-    echo "--> Running Locust load test against ${flavor}..."
-    docker compose run --rm -e TARGET_HOST="http://${flavor}:8000" -e BENCH_USERS="${BENCH_USERS}" -e BENCH_DURATION="${BENCH_DURATION}" locust \
-        -f locustfile.py --headless -H "http://${flavor}:8000" \
-        -u "${BENCH_USERS}" -r "${BENCH_SPAWN_RATE}" \
-        --run-time "${BENCH_DURATION}" \
-        --exit-code-on-error 0 \
-        --csv="/reports/${flavor}"
+    # Benchmark runs (mixed and/or isolated workloads)
+    for workload in ${BENCH_WORKLOADS}; do
+        echo "--> [Workload: ${workload}] Running Locust load test against ${flavor}..."
+        csv_prefix="/reports/${flavor}"
+        if [ "${workload}" != "mixed" ]; then
+            csv_prefix="/reports/${flavor}_${workload}"
+        fi
+
+        docker compose run --rm \
+            -e TARGET_HOST="http://${flavor}:8000" \
+            -e BENCH_USERS="${BENCH_USERS}" \
+            -e BENCH_DURATION="${BENCH_DURATION}" \
+            -e BENCH_WORKLOAD="${workload}" \
+            locust \
+            -f locustfile.py --headless -H "http://${flavor}:8000" \
+            -u "${BENCH_USERS}" -r "${BENCH_SPAWN_RATE}" \
+            --run-time "${BENCH_DURATION}" \
+            --exit-code-on-error 0 \
+            --csv="${csv_prefix}"
+    done
 
     echo "--> Stopping ${flavor} to prevent resource bleed..."
     docker compose stop "${flavor}"

@@ -3,11 +3,13 @@ import csv
 import glob
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 REPORTS_DIR = Path("reports")
+ARCHIVE_DIR = Path("archive")
 README_PATH = Path("README.md")
 START_MARKER = "<!-- BENCHMARK_START -->"
 END_MARKER = "<!-- BENCHMARK_END -->"
@@ -21,9 +23,59 @@ FLAVOR_LABELS = {
     "django-asgi-async": "ASGI + django-async-backend",
 }
 
+ISOLATED_WORKLOAD_LABELS = {
+    "gateway_aggregate": "API Gateway / BFF (Scatter-Gather Fan-Out)",
+    "catalog_render": "Catalog Render (DTL Template Engine)",
+    "external_fetch": "External Fetch (Upstream API I/O)",
+    "items_get": "Items API [GET] (ORM Serialization)",
+    "items_post": "Items API [POST] (ORM Inserts)",
+    "catalog_search": "Catalog Search (PostgreSQL Joins & Aggregates)",
+    "auth": "Authentication & Session Middleware",
+}
 
-def parse_history_scaling(flavor_name):
-    csv_path = REPORTS_DIR / f"{flavor_name}_stats_history.csv"
+
+def parse_semver(v: str):
+    """
+    Parses a semantic version string into a comparable tuple.
+    Handles standard versions (1.2.3), release candidates (2.0.0rc1),
+    betas (2.0.0b1), alphas (2.0.0a1), and dev releases.
+    """
+    if not v:
+        return ((0,), 0, 0)
+    clean_v = str(v).strip().lstrip("v")
+    match = re.match(
+        r"^(\d+(?:\.\d+)*)(?:[-._]?(a|alpha|b|beta|rc|c|pre|preview|dev)?[-._]?(\d*))?",
+        clean_v,
+        re.IGNORECASE,
+    )
+    if not match:
+        return ((0,), 0, 0)
+    nums_part, tag, tag_num = match.groups()
+    nums = tuple(int(x) for x in nums_part.split("."))
+
+    if not tag:
+        tag_prio = 4  # Final GA release
+        tag_n = 0
+    else:
+        tag = tag.lower()
+        if tag in ("dev",):
+            tag_prio = 0
+        elif tag in ("a", "alpha"):
+            tag_prio = 1
+        elif tag in ("b", "beta"):
+            tag_prio = 2
+        elif tag in ("rc", "c", "pre", "preview"):
+            tag_prio = 3
+        else:
+            tag_prio = 1
+        tag_n = int(tag_num) if tag_num else 0
+
+    return (nums, tag_prio, tag_n)
+
+
+def parse_history_scaling(flavor_name, csv_prefix=None):
+    file_prefix = csv_prefix or flavor_name
+    csv_path = REPORTS_DIR / f"{file_prefix}_stats_history.csv"
     if not csv_path.exists():
         return None
 
@@ -55,18 +107,22 @@ def parse_history_scaling(flavor_name):
     max_users = user_levels[-1]
     mid_users = user_levels[len(user_levels) // 2]
 
-    def get_tier_stats(target_users):
-        matches = [r for r in rows if r["users"] == target_users]
-        if not matches:
-            return {"p50": 0.0, "p95": 0.0, "rps": 0.0}
-        avg_p50 = sum(m["p50"] for m in matches) / len(matches)
-        avg_p95 = sum(m["p95"] for m in matches) / len(matches)
-        last_rps = matches[-1]["rps"]
-        return {"p50": round(avg_p50, 1), "p95": round(avg_p95, 1), "rps": round(last_rps, 1)}
+    stages = {}
+    for u in user_levels:
+        matches = [r for r in rows if r["users"] == u]
+        if matches:
+            avg_p50 = sum(m["p50"] for m in matches) / len(matches)
+            avg_p95 = sum(m["p95"] for m in matches) / len(matches)
+            last_rps = matches[-1]["rps"]
+            stages[u] = {
+                "p50": round(avg_p50, 1),
+                "p95": round(avg_p95, 1),
+                "rps": round(last_rps, 1),
+            }
 
-    low_tier = get_tier_stats(min_users)
-    mid_tier = get_tier_stats(mid_users)
-    peak_tier = get_tier_stats(max_users)
+    low_tier = stages.get(min_users, {"p50": 0.0, "p95": 0.0, "rps": 0.0})
+    mid_tier = stages.get(mid_users, {"p50": 0.0, "p95": 0.0, "rps": 0.0})
+    peak_tier = stages.get(max_users, {"p50": 0.0, "p95": 0.0, "rps": 0.0})
 
     initial_p95 = low_tier["p95"]
     peak_p95 = peak_tier["p95"]
@@ -80,11 +136,13 @@ def parse_history_scaling(flavor_name):
         "mid": mid_tier,
         "peak": peak_tier,
         "penalty_factor": penalty_factor,
+        "stages": stages,
     }
 
 
-def parse_flavor_stats(flavor_name):
-    csv_path = REPORTS_DIR / f"{flavor_name}_stats.csv"
+def parse_flavor_stats(flavor_name, csv_prefix=None):
+    file_prefix = csv_prefix or flavor_name
+    csv_path = REPORTS_DIR / f"{file_prefix}_stats.csv"
     if not csv_path.exists():
         return None
 
@@ -131,9 +189,27 @@ def parse_flavor_stats(flavor_name):
         "p99_ms": round(to_float(aggregated.get("99%")), 1),
         "max_ms": round(to_float(aggregated.get("Max Response Time")), 1),
         "routes": routes,
-        "scaling": parse_history_scaling(flavor_name),
+        "scaling": parse_history_scaling(flavor_name, csv_prefix),
     }
     return stats
+
+
+def parse_isolated_workload_stats(flavors):
+    """Finds and parses isolated workload runs (e.g. reports/<flavor>_<workload>_stats.csv)."""
+    isolated_results = {}
+    for workload_key, workload_label in ISOLATED_WORKLOAD_LABELS.items():
+        workload_data = []
+        for f in flavors:
+            prefix = f"{f}_{workload_key}"
+            stat = parse_flavor_stats(f, csv_prefix=prefix)
+            if stat:
+                workload_data.append(stat)
+        if workload_data:
+            isolated_results[workload_key] = {
+                "label": workload_label,
+                "data": workload_data,
+            }
+    return isolated_results
 
 
 def generate_ascii_bar(val, max_val, bar_width=32, fill_char="█"):
@@ -145,7 +221,7 @@ def generate_ascii_bar(val, max_val, bar_width=32, fill_char="█"):
     return "[" + (fill_char * fill_len) + (" " * empty_len) + "]"
 
 
-def build_markdown_report(results, hurricane_version):
+def build_markdown_report(results, hurricane_version, isolated_results=None):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = []
     lines.append(f"### Latest Benchmark Results ({timestamp})")
@@ -163,8 +239,8 @@ def build_markdown_report(results, hurricane_version):
     lines.append("| **ASGI + DAB** | Granian ASGI | 1 | 1 | Tokio (`mt`) | True async ORM (`async_objects`) | Async psycopg-pool (5–50 conns) |")
     lines.append("")
 
-    # Table
-    lines.append("#### Aggregate Performance Metrics")
+    # Aggregate Table
+    lines.append("#### Aggregate Performance Metrics (Mixed Workload)")
     lines.append("| Flavor | Throughput | Median (p50) | 95th (p95) | 99th (p99) | Error Rate | Requests |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
     for r in results:
@@ -191,7 +267,7 @@ def build_markdown_report(results, hurricane_version):
         lines.append(f"{r['label']:<32} {bar} {r['p95_ms']:>8.1f} ms")
     lines.append("```\n")
 
-    # Concurrency Scaling & Penalty Section
+    # Concurrency Scaling & Scaling Charts
     scaling_results = [r for r in results if r.get("scaling")]
     if scaling_results:
         min_u = scaling_results[0]["scaling"]["min_users"]
@@ -212,17 +288,44 @@ def build_markdown_report(results, hurricane_version):
             )
         lines.append("")
 
-        max_penalty = max(r["scaling"]["penalty_factor"] for r in scaling_results)
-        lines.append("##### Latency Inflation Factor under Load Scaling (Peak p95 vs Initial p95 - Lower is better)")
+        # Visual User Ramp-up Latency Scaling Chart
+        all_stage_p95s = [
+            st["p95"]
+            for r in scaling_results
+            for st in r["scaling"].get("stages", {}).values()
+            if st.get("p95")
+        ]
+        max_stage_p95 = max(all_stage_p95s) if all_stage_p95s else 100.0
+
+        lines.append("#### Response Time Scaling Under User Ramp-Up (p95 Latency - Lower is better)")
+        lines.append("Visual progression of 95th percentile latency across user ramp stages:")
         lines.append("```text")
         for r in scaling_results:
-            pf = r["scaling"]["penalty_factor"]
-            bar = generate_ascii_bar(pf, max_penalty)
-            lines.append(f"{r['label']:<32} {bar} {pf:>5.2f}x penalty")
+            lines.append(f"{r['label']}:")
+            stages = r["scaling"].get("stages", {})
+            for u in sorted(stages.keys()):
+                p95_val = stages[u]["p95"]
+                bar = generate_ascii_bar(p95_val, max_stage_p95, bar_width=12)
+                lines.append(f"  {u:3d} Users {bar} {p95_val:6.1f} ms")
+            penalty = r["scaling"].get("penalty_factor", 1.0)
+            lines.append(f"  Scaling Penalty Factor: {penalty:.2f}x\n")
         lines.append("```\n")
 
-    # Per route analysis
-    lines.append("#### Route Breakdown Across Flavors")
+    # Isolated Workloads Section (if executed and available)
+    if isolated_results:
+        lines.append("#### Isolated Workload Performance (Pure Endpoint Measurement)")
+        lines.append("Workloads executed in isolation to eliminate cross-traffic contention and measure raw endpoint capability:\n")
+        for workload_key, w_info in isolated_results.items():
+            lines.append(f"##### {w_info['label']}")
+            lines.append("| Flavor | Throughput | Median (p50) | 95th (p95) | Error Rate |")
+            lines.append("| :--- | :---: | :---: | :---: | :---: |")
+            w_sorted = sorted(w_info["data"], key=lambda x: x["rps"], reverse=True)
+            for d in w_sorted:
+                lines.append(f"| **{d['label']}** | **{d['rps']} req/s** | {d['median_ms']} ms | {d['p95_ms']} ms | {d['error_rate']}% |")
+            lines.append("")
+
+    # Per route analysis (Mixed workload)
+    lines.append("#### Route Breakdown Across Flavors (Mixed Workload)")
     route_names = sorted(list({row.get("Name") for r in results for row in r["routes"]}))
     if route_names:
         lines.append("| Route | " + " | ".join(f"{r['label']} (p95 / RPS)" for r in results) + " |")
@@ -251,6 +354,31 @@ def build_markdown_report(results, hurricane_version):
     return "\n".join(lines)
 
 
+def save_archived_report(report_markdown: str, hurricane_version: str) -> Path:
+    """Writes or overwrites the markdown report in the archive folder."""
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    archive_file = ARCHIVE_DIR / f"benchmark-{hurricane_version}.md"
+    with open(archive_file, "w", encoding="utf-8") as f:
+        f.write(report_markdown)
+    return archive_file
+
+
+def get_latest_archived_version() -> tuple:
+    """Scans archive/ for benchmark-*.md and returns (latest_version_str, file_path)."""
+    if not ARCHIVE_DIR.exists():
+        return None, None
+    files = list(ARCHIVE_DIR.glob("benchmark-*.md"))
+    if not files:
+        return None, None
+
+    def get_version(p: Path):
+        m = re.match(r"^benchmark-(.+)\.md$", p.name)
+        return m.group(1) if m else "0.0.0"
+
+    latest_file = max(files, key=lambda p: parse_semver(get_version(p)))
+    return get_version(latest_file), latest_file
+
+
 def update_readme(hurricane_version):
     flavors = [
         "django-wsgi",
@@ -270,8 +398,28 @@ def update_readme(hurricane_version):
         print("[update_readme] No stats found in reports/. Exiting.")
         return
 
-    report_content = build_markdown_report(results, hurricane_version)
+    isolated_results = parse_isolated_workload_stats(flavors)
+    current_report = build_markdown_report(results, hurricane_version, isolated_results)
 
+    # 1. Archive the current report (replace if existing release)
+    archive_path = save_archived_report(current_report, hurricane_version)
+    print(f"[update_readme] Successfully saved release report to {archive_path}")
+
+    # 2. Determine whether to update README.md based on Semantic Versioning
+    latest_ver, latest_path = get_latest_archived_version()
+    current_semver = parse_semver(hurricane_version)
+    latest_semver = parse_semver(latest_ver) if latest_ver else current_semver
+
+    report_to_publish = current_report
+    if latest_ver and current_semver < latest_semver:
+        print(
+            f"[update_readme] Current version ({hurricane_version}) is older than latest archived release ({latest_ver})."
+            f" Reading latest report from {latest_path} for README.md."
+        )
+        with open(latest_path, "r", encoding="utf-8") as f:
+            report_to_publish = f.read()
+
+    # 3. Update README.md
     if not README_PATH.exists():
         print(f"[update_readme] {README_PATH} does not exist.")
         return
@@ -286,17 +434,17 @@ def update_readme(hurricane_version):
         new_readme = (
             readme[: start_idx + len(START_MARKER)]
             + "\n\n"
-            + report_content
+            + report_to_publish
             + "\n\n"
             + readme[end_idx:]
         )
     else:
-        new_readme = readme + f"\n\n{START_MARKER}\n\n{report_content}\n\n{END_MARKER}\n"
+        new_readme = readme + f"\n\n{START_MARKER}\n\n{report_to_publish}\n\n{END_MARKER}\n"
 
     with open(README_PATH, "w", encoding="utf-8") as f:
         f.write(new_readme)
 
-    print(f"[update_readme] Successfully updated {README_PATH} with benchmark results.")
+    print(f"[update_readme] Successfully updated {README_PATH} with latest release report ({latest_ver or hurricane_version}).")
 
 
 if __name__ == "__main__":
