@@ -28,14 +28,16 @@ on:
         required: true
         type: choice
         options:
-          - mixed
           - all
+          - mixed
           - gateway_aggregate
           - catalog_render
           - external_fetch
           - items_get
+          - items_post
           - catalog_search
-        default: 'mixed'
+          - auth
+        default: 'all'
       flavor_selection:
         description: 'Deployment scenarios to evaluate'
         required: true

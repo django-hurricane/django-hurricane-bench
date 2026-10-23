@@ -6,10 +6,10 @@ BENCH_USERS="${BENCH_USERS:-150}"
 BENCH_SPAWN_RATE="${BENCH_SPAWN_RATE:-25}"
 BENCH_DURATION="${BENCH_DURATION:-45s}"
 BENCH_FLAVORS="${BENCH_FLAVORS:-django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-auto django-asgi-async}"
-BENCH_WORKLOADS="${BENCH_WORKLOADS:-mixed}"
+BENCH_WORKLOADS="${BENCH_WORKLOADS:-all}"
 
 if [ "${BENCH_WORKLOADS}" = "all" ]; then
-    BENCH_WORKLOADS="mixed gateway_aggregate catalog_render external_fetch items_get catalog_search"
+    BENCH_WORKLOADS="mixed gateway_aggregate catalog_render external_fetch items_get items_post catalog_search auth"
 fi
 
 echo "======================================================================"
@@ -77,6 +77,12 @@ for flavor in ${BENCH_FLAVORS}; do
 
     # Benchmark runs (mixed and/or isolated workloads)
     for workload in ${BENCH_WORKLOADS}; do
+        # If testing multiple workloads, ensure clean database state before each workload
+        if [ "${workload}" != "mixed" ]; then
+            echo "--> [Workload: ${workload}] Resetting database state..."
+            docker compose run --rm django-wsgi python manage.py seed_db --force > /dev/null 2>&1 || true
+        fi
+
         echo "--> [Workload: ${workload}] Running Locust load test against ${flavor}..."
         csv_prefix="/reports/${flavor}"
         if [ "${workload}" != "mixed" ]; then
