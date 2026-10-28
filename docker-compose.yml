@@ -15,7 +15,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-benchuser} -d ${DB_NAME:-benchdb}"]
       interval: 2s
       timeout: 3s
-      retries: 10
+      retries: 5
       start_period: 3s
 
   fake-api:
@@ -26,75 +26,21 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8080/health\")'"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 2s
       timeout: 3s
       retries: 5
       start_period: 3s
 
-  django-wsgi:
-    build:
-      context: .
-      args:
-        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc1}
-    container_name: bench-django-wsgi
-    profiles: ["wsgi", "all"]
-    environment:
-      - HURRICANE_MODE=wsgi
-      - HURRICANE_NO_RATE_LIMIT=true
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-benchdb}
-      - DB_USER=${DB_USER:-benchuser}
-      - DB_PASSWORD=${DB_PASSWORD:-benchpass}
-      - FAKE_API_URL=http://fake-api:8080
-      - DJANGO_SETTINGS_MODULE=config.settings
-    command: ["python", "manage.py", "serve", "--mode", "wsgi", "--port", "8000", "--probe-port", "8000", "--workers", "1", "--no-rate-limit"]
-    ports:
-      - "8001:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      fake-api:
-        condition: service_healthy
-
-  django-wsgi-auto:
-    build:
-      context: .
-      args:
-        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc1}
-    container_name: bench-django-wsgi-auto
-    profiles: ["wsgi-auto", "all"]
-    environment:
-      - HURRICANE_MODE=wsgi
-      - HURRICANE_NO_RATE_LIMIT=true
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-benchdb}
-      - DB_USER=${DB_USER:-benchuser}
-      - DB_PASSWORD=${DB_PASSWORD:-benchpass}
-      - FAKE_API_URL=http://fake-api:8080
-      - DJANGO_SETTINGS_MODULE=config.settings
-    command: ["python", "manage.py", "serve", "--mode", "wsgi", "--port", "8000", "--probe-port", "8000", "--no-rate-limit"]
-    ports:
-      - "8005:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      fake-api:
-        condition: service_healthy
-
   django-asgi-sync:
     build:
       context: .
       args:
-        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc1}
+        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc2}
     container_name: bench-django-asgi-sync
     profiles: ["asgi-sync", "all"]
     environment:
-      - HURRICANE_MODE=asgi
       - FORCE_SYNC_VIEWS=true
-      - HURRICANE_NO_RATE_LIMIT=true
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:-benchdb}
@@ -102,7 +48,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-benchpass}
       - FAKE_API_URL=http://fake-api:8080
       - DJANGO_SETTINGS_MODULE=config.settings
-    command: ["python", "manage.py", "serve", "--mode", "asgi", "--port", "8000", "--probe-port", "8000", "--workers", "1", "--no-rate-limit"]
+    command: ["python", "manage.py", "serve", "--port", "8000", "--probe-port", "8000", "--workers", "1"]
     ports:
       - "8004:8000"
     depends_on:
@@ -115,12 +61,10 @@ services:
     build:
       context: .
       args:
-        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc1}
+        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc2}
     container_name: bench-django-asgi
     profiles: ["asgi", "all"]
     environment:
-      - HURRICANE_MODE=asgi
-      - HURRICANE_NO_RATE_LIMIT=true
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:-benchdb}
@@ -128,7 +72,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-benchpass}
       - FAKE_API_URL=http://fake-api:8080
       - DJANGO_SETTINGS_MODULE=config.settings
-    command: ["python", "manage.py", "serve", "--mode", "asgi", "--port", "8000", "--probe-port", "8000", "--workers", "1", "--no-rate-limit"]
+    command: ["python", "manage.py", "serve", "--port", "8000", "--probe-port", "8000", "--workers", "1"]
     ports:
       - "8002:8000"
     depends_on:
@@ -141,12 +85,10 @@ services:
     build:
       context: .
       args:
-        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc1}
+        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc2}
     container_name: bench-django-asgi-auto
     profiles: ["asgi-auto", "all"]
     environment:
-      - HURRICANE_MODE=asgi
-      - HURRICANE_NO_RATE_LIMIT=true
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:-benchdb}
@@ -154,7 +96,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-benchpass}
       - FAKE_API_URL=http://fake-api:8080
       - DJANGO_SETTINGS_MODULE=config.settings
-    command: ["python", "manage.py", "serve", "--mode", "asgi", "--port", "8000", "--probe-port", "8000", "--no-rate-limit"]
+    command: ["python", "manage.py", "serve", "--port", "8000", "--probe-port", "8000"]
     ports:
       - "8006:8000"
     depends_on:
@@ -167,12 +109,10 @@ services:
     build:
       context: .
       args:
-        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc1}
+        HURRICANE_VERSION: ${HURRICANE_VERSION:-2.0.0rc2}
     container_name: bench-django-asgi-async
     profiles: ["asgi-async", "all"]
     environment:
-      - HURRICANE_MODE=asgi
-      - HURRICANE_NO_RATE_LIMIT=true
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:-benchdb}
@@ -180,7 +120,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-benchpass}
       - FAKE_API_URL=http://fake-api:8080
       - DJANGO_SETTINGS_MODULE=config.settings_async
-    command: ["python", "manage.py", "serve", "--mode", "asgi", "--port", "8000", "--probe-port", "8000", "--workers", "1", "--no-rate-limit"]
+    command: ["python", "manage.py", "serve", "--port", "8000", "--probe-port", "8000", "--workers", "1"]
     ports:
       - "8003:8000"
     depends_on:
@@ -195,7 +135,7 @@ services:
     container_name: bench-locust
     profiles: ["bench"]
     environment:
-      - TARGET_HOST=${TARGET_HOST:-http://django-wsgi:8000}
+      - TARGET_HOST=${TARGET_HOST:-http://django-asgi:8000}
     volumes:
       - ./benchmark:/locust
       - ./reports:/reports

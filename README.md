@@ -1,14 +1,12 @@
 # Django Hurricane Performance Benchmark Suite
 
-A Docker Compose and GitHub Actions benchmark environment evaluating **`django-hurricane`** (targeting 2.0.0rc1 and newer Granian-powered releases) under synthetic, near real-world web traffic.
+A Docker Compose and GitHub Actions benchmark environment evaluating **`django-hurricane`** (targeting 2.0.0rc2 and newer Granian-powered releases) under synthetic, near real-world web traffic. Starting in Hurricane 2.0.0rc2+, the `--mode` parameter is removed and the server runs purely under **ASGI** powered by Granian and Tokio.
 
-The suite compares six distinct deployment paradigms:
-1. **WSGI (Worker=1 / Single Thread)**: Granian WSGI interface with `--workers 1` (strict single-threaded baseline for 1-to-1 comparison with single-process event loop).
-2. **WSGI (Auto Threads / Multi-Thread)**: Granian WSGI interface with Hurricane's auto-threads calculation `min(32, cpu_count + 4)` threads (traditional real-world multi-threaded WSGI deployment).
-3. **ASGI (Forced Sync Views)**: Granian ASGI interface running legacy synchronous Django views, demonstrating the exact penalty of Django's `sync_to_async(thread_sensitive=True)` adapter under load.
-4. **ASGI (Clean Async / Single Thread)**: Granian ASGI interface with clean async views (`async def`), pooled `httpx` async client, and `--workers 1`.
-5. **ASGI (Auto Threads / Clean Async)**: Granian ASGI interface with clean async views and Hurricane's auto-threads calculation `min(32, cpu_count + 4)` threads for non-blocking threadpool dispatch and template rendering.
-6. **ASGI (`django-async-backend`)**: Granian ASGI interface with [django-async-backend](https://github.com/Arfey/django-async-backend) utilizing true non-blocking `psycopg 3` async connection pooling via `Product.async_objects` on the event loop.
+The suite evaluates four distinct deployment paradigms and architectural configurations:
+1. **ASGI (Legacy Sync Views)**: Granian ASGI interface running legacy synchronous Django views (`FORCE_SYNC_VIEWS=true`), demonstrating the exact behavior of Django's `sync_to_async(thread_sensitive=True)` adapter when serving legacy applications.
+2. **ASGI (Worker=1 / Clean Async)**: Granian ASGI interface with clean async views (`async def`), pooled `httpx` async client, and `--workers 1`.
+3. **ASGI (Worker=Auto / Clean Async)**: Granian ASGI interface with clean async views and Hurricane's auto-threads calculation `min(32, cpu_count + 4)` threads for non-blocking threadpool dispatch and template rendering.
+4. **ASGI (`django-async-backend`)**: Granian ASGI interface with [django-async-backend](https://github.com/Arfey/django-async-backend) utilizing true non-blocking `psycopg 3` async connection pooling via `Product.async_objects` on the event loop.
 
 ---
 
@@ -23,10 +21,10 @@ The suite compares six distinct deployment paradigms:
                          +------------------------------+------------------------------+
                          |                              |                              |
                          v                              v                              v
-             [ Flavors 1 & 2: WSGI ]        [ Flavor 3: ASGI-Sync ]       [ Flavors 4, 5 & 6: ASGI ]
-             Granian WSGI Mode              Granian ASGI Mode             Granian ASGI Mode
-             (Single Thread vs Auto-Threads) Django sync_to_async          Clean Async Views (httpx)
-             Sync DB (psycopg pool)         Sync HTTP (requests)          (Single vs Auto vs DAB Async ORM)
+             [ Flavor 1: Legacy Sync ]       [ Flavors 2 & 3: Clean Async ]   [ Flavor 4: Async ORM (DAB) ]
+             Granian ASGI Mode               Granian ASGI Mode                Granian ASGI Mode
+             (Legacy Synchronous Views)      Native async views (httpx)       django-async-backend
+             sync_to_async threadpool        (Single vs. Auto Threads)        Non-blocking async DB pooling
                          |                              |                              |
                          +------------------------------+------------------------------+
                                                         |
@@ -39,19 +37,22 @@ The suite compares six distinct deployment paradigms:
 
 ---
 
-## Workload Routes
+## Workload Scenarios
 
-The sample Django app runs six diverse traffic paths reflecting production patterns:
+The benchmark supports both composite mixed traffic, attack stress scenarios, and isolated per-endpoint measurements:
 
-| Route | Feature Area | Concurrency Characteristic |
-| :--- | :--- | :--- |
-| `POST /api/auth/login` | Session & Auth Middleware | Cookie signing, Session read/write, user credentials check (steady-state benchmarked). |
-| `GET /api/auth/me` | Session Verification | Native async session verification (`auser` under ASGI). |
-| `GET /catalog/render` | Complex Template Rendering | DTL engine overhead, nested loops, filters, context processors. |
-| `GET /api/items` & `POST /api/items` | JSON API Serialization | JSON parsing, model validation, bulk query serialization. |
-| `GET /external/fetch` | Unreliable Third-Party API | Interacts with `fake-api` (`/delay?min=X&max=Y`) simulating erratic upstream latency. |
-| `GET /catalog/search` | Database Queries & Aggregations | Filtering, foreign key joins (`select_related`), and statistical aggregations on PostgreSQL 17. |
-| `GET /api/gateway/aggregate` | Scatter-Gather Microservices API Gateway | Fan-out to 3 microservices: sequential blocking in WSGI vs `asyncio.gather()` parallel sockets in ASGI. |
+### 1. Mixed & Security Workloads
+- **`mixed` / `baseline_valid`**: Legitimate production traffic across all valid endpoints (Gateway fan-out, ORM queries, DTL rendering, session auth).
+- **`security_flood`**: Simulates attack conditions where legitimate user traffic is assaulted by a massive flood of **Fast-404 dictionary attack scanner probes** (e.g. `/.env`, `/wp-login.php`, `/.git`, `/phpmyadmin`) dropped in microseconds, and **rate-limiting bursts** triggering `429 Too Many Requests`. Used to measure throughput retention and defense overhead.
+
+### 2. Isolated Endpoint Measurements
+- `gateway_aggregate`: 100% traffic targeting `/api/gateway/aggregate` (scatter-gather microservice fan-out).
+- `catalog_render`: 100% traffic targeting `/catalog/render` (DTL template engine).
+- `external_fetch`: 100% traffic targeting `/external/fetch` (slow upstream API network I/O).
+- `items_get`: 100% traffic targeting `GET /api/items` (relational ORM serialization).
+- `items_post`: 100% traffic targeting `POST /api/items` (database inserts).
+- `catalog_search`: 100% traffic targeting `/catalog/search` (PostgreSQL relational filters & joins).
+- `auth`: 100% traffic targeting authentication & session check.
 
 ---
 
@@ -61,30 +62,24 @@ The sample Django app runs six diverse traffic paths reflecting production patte
 Execute the automated sequential benchmark runner:
 
 ```bash
-# Run all flavors with default django-hurricane 2.0.0rc1 (mixed workload)
+# Run all flavors with default django-hurricane 2.0.0rc2 (all workloads)
 ./scripts/run_benchmark.sh
 
-# Or specify custom hurricane version, parameters, and isolated workloads:
-HURRICANE_VERSION=2.0.0rc1 BENCH_USERS=150 BENCH_DURATION=45s ./scripts/run_benchmark.sh
+# Or specify custom hurricane version and parameters:
+HURRICANE_VERSION=2.0.0rc2 BENCH_USERS=150 BENCH_DURATION=45s ./scripts/run_benchmark.sh
 
-# Run an isolated endpoint without cross-talk (e.g. pure API Gateway fan-out):
-BENCH_WORKLOADS="gateway_aggregate" ./scripts/run_benchmark.sh
+# Run only the security flood attack workload:
+BENCH_WORKLOADS="security_flood" ./scripts/run_benchmark.sh
 
-# Run both mixed and all isolated workloads:
-BENCH_WORKLOADS="all" ./scripts/run_benchmark.sh
+# Run clean baseline vs. security flood to measure attack defense overhead:
+BENCH_WORKLOADS="baseline_valid security_flood" ./scripts/run_benchmark.sh
 ```
 
 ### 2. Run Flavors Individually with Docker Compose
 You can run any single flavor for manual testing or debugging:
 
 ```bash
-# Start WSGI single-threaded baseline on port 8001
-docker compose --profile wsgi up -d
-
-# Start WSGI auto-threads (production multi-thread) on port 8005
-docker compose --profile wsgi-auto up -d
-
-# Start ASGI forced-sync migration flavor on port 8004
+# Start ASGI legacy sync migration flavor on port 8004
 docker compose --profile asgi-sync up -d
 
 # Start Standard ASGI single-threaded baseline on port 8002
@@ -98,6 +93,11 @@ docker compose --profile asgi-async up -d
 ```
 
 ### 3. Interactive Locust UI (Optional)
+```bash
+docker compose up -d postgres fake-api django-asgi-auto
+TARGET_HOST=http://localhost:8006 locust -f benchmark/locustfile.py
+# Open http://localhost:8089 in your browser
+```
 ```bash
 docker compose up -d postgres fake-api django-asgi-auto
 TARGET_HOST=http://localhost:8006 locust -f benchmark/locustfile.py
@@ -137,11 +137,9 @@ The GitHub Actions runner executes each flavor sequentially, writes artifact rep
 #### Server & Worker Runtime Architecture
 | Flavor | Server Interface | Worker Processes | Server Threads | Event Loop | App Concurrency Model | DB Pool |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **WSGI (Worker=1)** | Granian WSGI | 1 | 1 | None | Single OS thread (In-thread) | Sync psycopg (4 conns) |
-| **WSGI (Auto Threads)** | Granian WSGI | 1 | `min(32, CPU+4)` (6–12) | None | Multi-threaded (In-thread) | Sync psycopg (4 conns) |
-| **ASGI (Forced Sync)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | `asgiref` single-thread queue | Sync psycopg (4 conns) |
-| **ASGI (Clean Async)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Sync psycopg (4 conns) |
-| **ASGI (Auto Threads)** | Granian ASGI | 1 | `min(32, CPU+4)` (6–12) | Tokio (`mt`) | Native async views + multi-thread DTL | Sync psycopg (4 conns) |
+| **ASGI (Legacy Sync Views)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | `asgiref` single-thread queue | Sync psycopg (4 conns) |
+| **ASGI (Worker=1 / Clean Async)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Sync psycopg (4 conns) |
+| **ASGI (Worker=Auto / Clean Async)** | Granian ASGI | 1 | `min(32, CPU+4)` (6–12) | Tokio (`mt`) | Native async views + multi-thread DTL | Sync psycopg (4 conns) |
 | **ASGI + DAB** | Granian ASGI | 1 | 1 | Tokio (`mt`) | True async ORM (`async_objects`) | Async psycopg-pool (5–50 conns) |
 
 #### Aggregate Performance Metrics (Mixed Workload)
@@ -269,8 +267,25 @@ ASGI + django-async-backend:
 
 ```
 
+#### Fast-404 & Rate Limiting Attack Defense Performance
+Evaluation of Hurricane's security engines: comparing clean baseline traffic against a massive flood of dictionary attacks (Fast-404 early drop in microseconds) and rate-limited abuse (429 Too Many Requests):
+
+| Flavor | Clean Baseline RPS | Under Attack RPS | Clean Median | Attack Median | Throughput Capacity Factor |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **ASGI (Worker=1 / Clean Async)** | **54.0 req/s** | **67.5 req/s** | 69.0 ms | 16.0 ms | **1.25x** |
+
 #### Isolated Workload Performance (Pure Endpoint Measurement)
 Workloads executed in isolation to eliminate cross-traffic contention and measure raw endpoint capability:
+
+##### Security Flood: Fast-404 Dictionary Attack & 429 Rate Limiter Abuse
+| Flavor | Throughput | Median (p50) | 95th (p95) | Error Rate |
+| :--- | :---: | :---: | :---: | :---: |
+| **ASGI (Worker=1 / Clean Async)** | **67.5 req/s** | 16.0 ms | 130.0 ms | 0.0% |
+
+##### Clean Baseline: Valid Traffic with Security Protection (No Flood)
+| Flavor | Throughput | Median (p50) | 95th (p95) | Error Rate |
+| :--- | :---: | :---: | :---: | :---: |
+| **ASGI (Worker=1 / Clean Async)** | **54.0 req/s** | 69.0 ms | 200.0 ms | 0.0% |
 
 ##### API Gateway / BFF (Scatter-Gather Fan-Out)
 | Flavor | Throughput | Median (p50) | 95th (p95) | Error Rate |
@@ -355,12 +370,11 @@ Workloads executed in isolation to eliminate cross-traffic contention and measur
 | `/external/fetch [GET]` | 6300.0 ms (4.3 rps) | 790.0 ms (24.7 rps) | 240.0 ms (16.2 rps) | 270.0 ms (14.6 rps) | 270.0 ms (15.2 rps) | 3500.0 ms (12.6 rps) |
 
 #### Key Empirical Findings & Production Recommendations
-- **Isolated Relational ORM vs. Mixed Traffic Reality**: In pure, isolated database queries with zero network waiting, multi-threaded WSGI (`WSGI Worker=Auto`) achieves higher raw query throughput because OS threads execute queries directly in parallel without event-loop overhead. However, in mixed production traffic containing even modest external I/O, worker thread stalls allow `ASGI (Forced Sync Views)` to achieve higher aggregate throughput and lower median latency across the application.
-- **Hardware Footprint & Kubernetes Pod Constraints (Cloud-Native Reality)**: Hardware sizing heavily influences the WSGI vs. ASGI trade-off. On large multi-core bare-metal machines, WSGI has enough threadpool depth to absorb mixed traffic without thread exhaustion. However, in production Kubernetes clusters where applications run in constrained pods (e.g. 1–2 vCPUs), WSGI's threadpool is restricted to just 5–6 threads, causing rapid thread starvation on blocking I/O. In contrast, ASGI multiplexes hundreds of concurrent connections on Granian's lightweight Tokio Rust event loop within that same constrained pod footprint, giving ASGI a decisive architectural advantage in cloud-native containerized deployments.
-- **Upstream Network I/O & Microservice Fan-Out (ASGI Advantage)**: On workloads involving external API calls, slow third-party webhooks, and scatter-gather API Gateway patterns (`/external/fetch` and `/api/gateway/aggregate`), ASGI demonstrates its fundamental architectural superiority. Coroutines yield the Tokio event loop during network waits without tying up OS worker threads, keeping tail latencies flat and eliminating the thread-starvation deadlocks that severely degrade WSGI under load.
-- **The 'Partial Async' Context-Switching Trap**: In workloads with mixed sync ORM and async operations, `ASGI (Forced Sync Views)` frequently matches or outperforms `ASGI (Clean Async)`. A synchronous view dispatched under ASGI incurs only a single thread context switch (`sync_to_async`), whereas `async def` views with multiple ORM queries repeatedly yield and bounce across thread boundaries and GIL locks.
-- **Production Concurrency Requirement (`Worker=Auto`)**: Single-threaded deployments (`Worker=1`) for either WSGI or ASGI are highly vulnerable to blocking I/O and thread starvation under real traffic. Production deployments should always provision auto-threads (`min(32, CPU+4)`) to ensure adequate threadpool capacity for background execution and template rendering.
-- **Specialized Role of Async ORM Backends (`django-async-backend`)**: Bypassing `asgiref` via `Product.async_objects` allows non-blocking `psycopg 3` connection pooling, but managing asynchronous database pools requires strict lifecycle discipline. It remains a targeted optimization for greenfield, isolated microservices rather than a drop-in default for monolithic Django applications.
+- **Pure ASGI Architecture**: With Hurricane 2.0.0rc2+, Django runs strictly under Granian's ASGI interface, standardizing connection handling onto Tokio's asynchronous Rust runtime.
+- **Legacy Synchronous Django Apps under ASGI**: For codebases reliant on synchronous ORM methods, legacy middleware, and standard forms, running Hurricane ASGI with synchronous views (`ASGI Legacy Sync Views`) achieves high socket multiplexing while avoiding the multi-hop coroutine-to-thread context switches incurred when querying the ORM from `async def` views.
+- **Fast-404 & Rate Limiting Protection**: Under security flood attacks, Hurricane's Fast-404 engine drops malicious scanner probes (e.g. `/.env`, `/wp-login.php`, `/.git`) in microseconds, while the Token Bucket Rate Limiter returns 429 Too Many Requests before touching Django's URL resolver or view pipeline, preserving server capacity for legitimate traffic.
+- **Hardware Footprint & Kubernetes Pod Constraints**: In typical cloud-native Kubernetes clusters running lightweight pods (1–2 vCPUs), ASGI multiplexes high connection volumes on Granian's Tokio event loop without threadpool exhaustion, providing superior operational resilience compared to traditional thread-per-request models.
+- **Production Concurrency Requirement (`Worker=Auto`)**: Always deploy Hurricane with auto-threads (`Worker=Auto`), ensuring adequate threadpool depth for CPU template rendering and background tasks without starving the event loop.
 
 <!-- BENCHMARK_END -->
 
@@ -424,30 +438,25 @@ Bypassing `asgiref` by routing queries through `Product.async_objects` directly 
 ### 3. Production Guidelines & Decision Matrix
 
 ```text
-                           Is your application predominantly:
+                        Django Architecture on Hurricane (Pure ASGI)
                                         |
                +------------------------+------------------------+
                |                                                 |
-      [ Relational / ORM Heavy ]                        [ External I/O Heavy ]
-      (CRUD, CMS, Relational DB,                        (Microservices, API Gateways,
-       Admin, Heavy DTL Templates)                       Upstream Calls, Long-Polling)
+      [ Legacy Synchronous App ]                        [ Modern Async Services ]
+      (Existing DRF, CMS, Sync ORM,                     (API Gateways, Microservices,
+       Heavy Relational DB Models)                       Upstream Calls, Scatter-Gather)
                |                                                 |
                v                                                 v
-    +----------------------+                          +----------------------+
-    |  WSGI (Worker=Auto)  |                          |  ASGI (Worker=Auto)  |
-    |  - Highest DB Speed  |                          |  - Flat Tail Latency |
-    |  - Zero Thread Hops  |                          |  - Non-blocking I/O  |
-    +----------------------+                          +----------------------+
-                                                                 |
-                                              [ Running on Kubernetes Pods (1-2 vCPUs) ]
-                                              ASGI excels by multiplexing sockets
-                                              without threadpool exhaustion
+    +--------------------------+                      +--------------------------+
+    | ASGI (Legacy Sync Views) |                      | ASGI (Worker=Auto/Clean) |
+    | - High Socket Concurrency|                      | - Non-blocking Fan-Out   |
+    | - 1 Context Switch / Req |                      | - Flat Tail Latencies    |
+    +--------------------------+                      +--------------------------+
 ```
 
 | Deployment Scenario | Recommended Architecture | Primary Advantages | When to Choose |
 | :--- | :--- | :--- | :--- |
-| **Kubernetes Microservice / API Gateway** | **ASGI (Worker=Auto / Clean Async)** | Flat tail latency on network I/O, non-blocking scatter-gather fan-out (`asyncio.gather`), high connection capacity in small pod specs (1–2 vCPUs). | Containerized Kubernetes services calling upstream APIs, payment providers, third-party webhooks, or streaming responses. |
-| **Monolithic / Relational Web App (Dedicated Nodes)** | **WSGI (Worker=Auto / Multi-Thread)** | Maximum raw database query throughput, lowest median latency for ORM endpoints, parallel database execution with zero event-loop hopping. | Classic monolithic Django applications on dedicated multi-core instances dominated by ORM queries, Django admin, forms, and DTL templates. |
-| **Existing WSGI App Modernizing on Kubernetes** | **ASGI (Forced Sync Views)** | Immediate socket multiplexing gains in small pods, zero view code refactoring, avoids multi-hop async ORM context switches. | Transitional migration phase from legacy WSGI servers to Granian in Kubernetes before refactoring views to native async. |
-| **Isolated Greenfield Microservice** | **ASGI + `django-async-backend`** | Direct non-blocking database queries via `Product.async_objects` over `psycopg 3` connection pools. | Greenfield microservices with full control over query design and zero dependency on third-party synchronous Django apps. |
-| **Single-Threaded Baseline** | **WSGI (`Worker=1`) / ASGI (`Worker=1`)** | Diagnostic baseline only. | **Never in production.** Highly vulnerable to thread starvation and head-of-line blocking under real traffic. |
+| **Modern API Gateway / Microservice** | **ASGI (Worker=Auto / Clean Async)** | Flat tail latency on network I/O, non-blocking scatter-gather fan-out (`asyncio.gather`), high connection capacity in small Kubernetes pod specs (1–2 vCPUs). | Containerized Kubernetes services calling upstream APIs, payment providers, third-party webhooks, or streaming responses. |
+| **Legacy Synchronous Django Applications** | **ASGI (Legacy Sync Views)** | Immediate socket multiplexing gains, 100% compatibility with standard Django ORM, avoids multi-hop coroutine-to-thread context switching. | Existing synchronous Django codebases, DRF applications, and apps migrating to Hurricane without rewriting views to async. |
+| **Isolated Greenfield Microservice** | **ASGI + `django-async-backend`** | Direct non-blocking database queries via `Product.async_objects` over `psycopg 3` connection pools on the event loop. | Greenfield microservices with full control over query design and zero dependency on third-party synchronous Django apps. |
+| **Single-Threaded Diagnostic Baseline** | **ASGI (`Worker=1`)** | Synthetic diagnostic baseline only. | **Never in production.** Highly vulnerable to background task starvation (template rendering and non-sensitive async tasks). |

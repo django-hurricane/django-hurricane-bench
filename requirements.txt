@@ -2,7 +2,7 @@
 Django>=6.1.0,<6.2.0
 
 # Asynchronous and Hurricane Support
-django-hurricane==2.0.0rc1
+django-hurricane>=2.0.0rc2
 django-async-backend>=6.1.5
 
 # Database Drivers & Connection Pooling

@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-HURRICANE_VERSION="${HURRICANE_VERSION:-2.0.0rc1}"
+HURRICANE_VERSION="${HURRICANE_VERSION:-2.0.0rc2}"
 BENCH_USERS="${BENCH_USERS:-150}"
 BENCH_SPAWN_RATE="${BENCH_SPAWN_RATE:-25}"
 BENCH_DURATION="${BENCH_DURATION:-45s}"
-BENCH_FLAVORS="${BENCH_FLAVORS:-django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-auto django-asgi-async}"
+BENCH_FLAVORS="${BENCH_FLAVORS:-django-asgi-sync django-asgi django-asgi-auto django-asgi-async}"
 BENCH_WORKLOADS="${BENCH_WORKLOADS:-all}"
 
 if [ "${BENCH_WORKLOADS}" = "all" ]; then
-    BENCH_WORKLOADS="mixed gateway_aggregate catalog_render external_fetch items_get items_post catalog_search auth"
+    BENCH_WORKLOADS="mixed baseline_valid security_flood gateway_aggregate catalog_render external_fetch items_get items_post catalog_search auth"
 fi
 
 echo "======================================================================"
-echo " Starting Django Hurricane Benchmark Suite"
+echo " Starting Django Hurricane Benchmark Suite (Pure ASGI)"
 echo " Django Hurricane Version: ${HURRICANE_VERSION}"
 echo " Concurrent Users:         ${BENCH_USERS}"
 echo " Spawn Rate:               ${BENCH_SPAWN_RATE} users/sec"
@@ -37,8 +37,8 @@ until docker compose exec postgres pg_isready -U benchuser -d benchdb > /dev/nul
 done
 
 echo "--> Applying database migrations & seeding benchmark data..."
-docker compose run --rm django-wsgi python manage.py migrate --noinput
-docker compose run --rm django-wsgi python manage.py seed_db --force
+docker compose run --rm django-asgi-sync python manage.py migrate --noinput
+docker compose run --rm django-asgi-sync python manage.py seed_db --force
 
 for flavor in ${BENCH_FLAVORS}; do
     echo "======================================================================"
@@ -46,7 +46,7 @@ for flavor in ${BENCH_FLAVORS}; do
     echo "======================================================================"
 
     echo "--> Resetting and seeding database for ${flavor} to guarantee clean initial state..."
-    docker compose run --rm django-wsgi python manage.py seed_db --force
+    docker compose run --rm django-asgi-sync python manage.py seed_db --force
 
     # Start target container
     docker compose up -d "${flavor}"
@@ -75,12 +75,12 @@ for flavor in ${BENCH_FLAVORS}; do
         -f locustfile.py --headless -H "http://${flavor}:8000" \
         -u 20 -r 10 --run-time 5s --exit-code-on-error 0 > /dev/null 2>&1 || true
 
-    # Benchmark runs (mixed and/or isolated workloads)
+    # Benchmark runs (mixed, security_flood, baseline_valid, and/or isolated workloads)
     for workload in ${BENCH_WORKLOADS}; do
         # If testing multiple workloads, ensure clean database state before each workload
         if [ "${workload}" != "mixed" ]; then
             echo "--> [Workload: ${workload}] Resetting database state..."
-            docker compose run --rm django-wsgi python manage.py seed_db --force > /dev/null 2>&1 || true
+            docker compose run --rm django-asgi-sync python manage.py seed_db --force > /dev/null 2>&1 || true
         fi
 
         echo "--> [Workload: ${workload}] Running Locust load test against ${flavor}..."

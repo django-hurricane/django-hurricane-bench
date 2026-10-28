@@ -6,7 +6,7 @@ on:
       hurricane_version:
         description: 'django-hurricane PyPI version'
         required: true
-        default: '2.0.0rc1'
+        default: '2.0.0rc2'
         type: string
       bench_users:
         description: 'Locust concurrent user count'
@@ -24,12 +24,14 @@ on:
         default: '45s'
         type: string
       bench_workload:
-        description: 'Workload(s) to benchmark (mixed, all, or specific endpoint)'
+        description: 'Workload(s) to benchmark (all, security_flood, baseline_valid, or specific endpoint)'
         required: true
         type: choice
         options:
           - all
           - mixed
+          - security_flood
+          - baseline_valid
           - gateway_aggregate
           - catalog_render
           - external_fetch
@@ -39,13 +41,11 @@ on:
           - auth
         default: 'all'
       flavor_selection:
-        description: 'Deployment scenarios to evaluate'
+        description: 'Deployment scenarios to evaluate (Hurricane ASGI)'
         required: true
         type: choice
         options:
           - all
-          - django-wsgi
-          - django-wsgi-auto
           - django-asgi-sync
           - django-asgi
           - django-asgi-auto
@@ -78,7 +78,7 @@ jobs:
         run: |
           FLAVORS="${{ inputs.flavor_selection }}"
           if [ "$FLAVORS" = "all" ]; then
-            export BENCH_FLAVORS="django-wsgi django-wsgi-auto django-asgi-sync django-asgi django-asgi-auto django-asgi-async"
+            export BENCH_FLAVORS="django-asgi-sync django-asgi django-asgi-auto django-asgi-async"
           else
             export BENCH_FLAVORS="$FLAVORS"
           fi

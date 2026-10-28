@@ -15,15 +15,15 @@ START_MARKER = "<!-- BENCHMARK_START -->"
 END_MARKER = "<!-- BENCHMARK_END -->"
 
 FLAVOR_LABELS = {
-    "django-wsgi": "WSGI (Worker=1 / Single Thread)",
-    "django-wsgi-auto": "WSGI (Worker=Auto / Multi-Thread)",
-    "django-asgi-sync": "ASGI (Forced Sync Views)",
+    "django-asgi-sync": "ASGI (Legacy Sync Views)",
     "django-asgi": "ASGI (Worker=1 / Clean Async)",
     "django-asgi-auto": "ASGI (Worker=Auto / Clean Async)",
     "django-asgi-async": "ASGI + django-async-backend",
 }
 
 ISOLATED_WORKLOAD_LABELS = {
+    "security_flood": "Security Flood: Fast-404 Dictionary Attack & 429 Rate Limiter Abuse",
+    "baseline_valid": "Clean Baseline: Valid Traffic with Security Protection (No Flood)",
     "gateway_aggregate": "API Gateway / BFF (Scatter-Gather Fan-Out)",
     "catalog_render": "Catalog Render (DTL Template Engine)",
     "external_fetch": "External Fetch (Upstream API I/O)",
@@ -225,17 +225,15 @@ def build_markdown_report(results, hurricane_version, isolated_results=None):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = []
     lines.append(f"### Latest Benchmark Results ({timestamp})")
-    lines.append(f"**Django Hurricane Version:** `{hurricane_version}` | **PostgreSQL:** `17` | **Python:** `3.12`\n")
+    lines.append(f"**Django Hurricane Version:** `{hurricane_version}` (Pure ASGI) | **PostgreSQL:** `17` | **Python:** `3.12`\n")
 
     # Runtime Architecture Table
     lines.append("#### Server & Worker Runtime Architecture")
     lines.append("| Flavor | Server Interface | Worker Processes | Server Threads | Event Loop | App Concurrency Model | DB Pool |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: |")
-    lines.append("| **WSGI (Worker=1)** | Granian WSGI | 1 | 1 | None | Single OS thread (In-thread) | Sync psycopg (4 conns) |")
-    lines.append("| **WSGI (Auto Threads)** | Granian WSGI | 1 | `min(32, CPU+4)` (6–12) | None | Multi-threaded (In-thread) | Sync psycopg (4 conns) |")
-    lines.append("| **ASGI (Forced Sync)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | `asgiref` single-thread queue | Sync psycopg (4 conns) |")
-    lines.append("| **ASGI (Clean Async)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Sync psycopg (4 conns) |")
-    lines.append("| **ASGI (Auto Threads)** | Granian ASGI | 1 | `min(32, CPU+4)` (6–12) | Tokio (`mt`) | Native async views + multi-thread DTL | Sync psycopg (4 conns) |")
+    lines.append("| **ASGI (Legacy Sync Views)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | `asgiref` single-thread queue | Sync psycopg (4 conns) |")
+    lines.append("| **ASGI (Worker=1 / Clean Async)** | Granian ASGI | 1 | 1 | Tokio (`mt`) | Native async views + threadpool DTL | Sync psycopg (4 conns) |")
+    lines.append("| **ASGI (Worker=Auto / Clean Async)** | Granian ASGI | 1 | `min(32, CPU+4)` (6–12) | Tokio (`mt`) | Native async views + multi-thread DTL | Sync psycopg (4 conns) |")
     lines.append("| **ASGI + DAB** | Granian ASGI | 1 | 1 | Tokio (`mt`) | True async ORM (`async_objects`) | Async psycopg-pool (5–50 conns) |")
     lines.append("")
 
@@ -311,6 +309,29 @@ def build_markdown_report(results, hurricane_version, isolated_results=None):
             lines.append(f"  Scaling Penalty Factor: {penalty:.2f}x\n")
         lines.append("```\n")
 
+    # Security Flood vs Baseline Valid Comparison (Fast-404 & Rate Limiting Penalty)
+    if isolated_results and "security_flood" in isolated_results and "baseline_valid" in isolated_results:
+        flood_data = {d["flavor"]: d for d in isolated_results["security_flood"]["data"]}
+        base_data = {d["flavor"]: d for d in isolated_results["baseline_valid"]["data"]}
+
+        common_flavors = [f for f in flood_data if f in base_data]
+        if common_flavors:
+            lines.append("#### Fast-404 & Rate Limiting Attack Defense Performance")
+            lines.append(
+                "Evaluation of Hurricane's security engines: comparing clean baseline traffic against a massive flood "
+                "of dictionary attacks (Fast-404 early drop in microseconds) and rate-limited abuse (429 Too Many Requests):\n"
+            )
+            lines.append("| Flavor | Clean Baseline RPS | Under Attack RPS | Clean Median | Attack Median | Throughput Capacity Factor |")
+            lines.append("| :--- | :---: | :---: | :---: | :---: | :---: |")
+            for f in common_flavors:
+                b = base_data[f]
+                s = flood_data[f]
+                ratio = round((s["rps"] / b["rps"]), 2) if b["rps"] > 0 else 1.0
+                lines.append(
+                    f"| **{b['label']}** | **{b['rps']} req/s** | **{s['rps']} req/s** | {b['median_ms']} ms | {s['median_ms']} ms | **{ratio}x** |"
+                )
+            lines.append("")
+
     # Isolated Workloads Section (if executed and available)
     if isolated_results:
         lines.append("#### Isolated Workload Performance (Pure Endpoint Measurement)")
@@ -345,12 +366,11 @@ def build_markdown_report(results, hurricane_version, isolated_results=None):
 
     # Architectural Analysis & Recommendations
     lines.append("#### Key Empirical Findings & Production Recommendations")
-    lines.append("- **Isolated Relational ORM vs. Mixed Traffic Reality**: In pure, isolated database queries with zero network waiting, multi-threaded WSGI (`WSGI Worker=Auto`) achieves higher raw query throughput because OS threads execute queries directly in parallel without event-loop overhead. However, in mixed production traffic containing even modest external I/O, worker thread stalls allow `ASGI (Forced Sync Views)` to achieve higher aggregate throughput and lower median latency across the application.")
-    lines.append("- **Hardware Footprint & Kubernetes Pod Constraints (Cloud-Native Reality)**: Hardware sizing heavily influences the WSGI vs. ASGI trade-off. On large multi-core bare-metal machines, WSGI has enough threadpool depth to absorb mixed traffic without thread exhaustion. However, in production Kubernetes clusters where applications run in constrained pods (e.g. 1–2 vCPUs), WSGI's threadpool is restricted to just 5–6 threads, causing rapid thread starvation on blocking I/O. In contrast, ASGI multiplexes hundreds of concurrent connections on Granian's lightweight Tokio Rust event loop within that same constrained pod footprint, giving ASGI a decisive architectural advantage in cloud-native containerized deployments.")
-    lines.append("- **Upstream Network I/O & Microservice Fan-Out (ASGI Advantage)**: On workloads involving external API calls, slow third-party webhooks, and scatter-gather API Gateway patterns (`/external/fetch` and `/api/gateway/aggregate`), ASGI demonstrates its fundamental architectural superiority. Coroutines yield the Tokio event loop during network waits without tying up OS worker threads, keeping tail latencies flat and eliminating the thread-starvation deadlocks that severely degrade WSGI under load.")
-    lines.append("- **The 'Partial Async' Context-Switching Trap**: In workloads with mixed sync ORM and async operations, `ASGI (Forced Sync Views)` frequently matches or outperforms `ASGI (Clean Async)`. A synchronous view dispatched under ASGI incurs only a single thread context switch (`sync_to_async`), whereas `async def` views with multiple ORM queries repeatedly yield and bounce across thread boundaries and GIL locks.")
-    lines.append("- **Production Concurrency Requirement (`Worker=Auto`)**: Single-threaded deployments (`Worker=1`) for either WSGI or ASGI are highly vulnerable to blocking I/O and thread starvation under real traffic. Production deployments should always provision auto-threads (`min(32, CPU+4)`) to ensure adequate threadpool capacity for background execution and template rendering.")
-    lines.append("- **Specialized Role of Async ORM Backends (`django-async-backend`)**: Bypassing `asgiref` via `Product.async_objects` allows non-blocking `psycopg 3` connection pooling, but managing asynchronous database pools requires strict lifecycle discipline. It remains a targeted optimization for greenfield, isolated microservices rather than a drop-in default for monolithic Django applications.")
+    lines.append("- **Pure ASGI Architecture**: With Hurricane 2.0.0rc2+, Django runs strictly under Granian's ASGI interface, standardizing connection handling onto Tokio's asynchronous Rust runtime.")
+    lines.append("- **Legacy Synchronous Django Apps under ASGI**: For codebases reliant on synchronous ORM methods, legacy middleware, and standard forms, running Hurricane ASGI with synchronous views (`ASGI Legacy Sync Views`) achieves high socket multiplexing while avoiding the multi-hop coroutine-to-thread context switches incurred when querying the ORM from `async def` views.")
+    lines.append("- **Fast-404 & Rate Limiting Protection**: Under security flood attacks, Hurricane's Fast-404 engine drops malicious scanner probes (e.g. `/.env`, `/wp-login.php`, `/.git`) in microseconds, while the Token Bucket Rate Limiter returns 429 Too Many Requests before touching Django's URL resolver or view pipeline, preserving server capacity for legitimate traffic.")
+    lines.append("- **Hardware Footprint & Kubernetes Pod Constraints**: In typical cloud-native Kubernetes clusters running lightweight pods (1–2 vCPUs), ASGI multiplexes high connection volumes on Granian's Tokio event loop without threadpool exhaustion, providing superior operational resilience compared to traditional thread-per-request models.")
+    lines.append("- **Production Concurrency Requirement (`Worker=Auto`)**: Always deploy Hurricane with auto-threads (`Worker=Auto`), ensuring adequate threadpool depth for CPU template rendering and background tasks without starving the event loop.")
 
     return "\n".join(lines)
 
@@ -382,8 +402,6 @@ def get_latest_archived_version() -> tuple:
 
 def update_readme(hurricane_version):
     flavors = [
-        "django-wsgi",
-        "django-wsgi-auto",
         "django-asgi-sync",
         "django-asgi",
         "django-asgi-auto",
@@ -449,7 +467,7 @@ def update_readme(hurricane_version):
 
 
 if __name__ == "__main__":
-    version = os.environ.get("HURRICANE_VERSION", "2.0.0rc1")
+    version = os.environ.get("HURRICANE_VERSION", "2.0.0rc2")
     if len(sys.argv) > 1:
         version = sys.argv[1]
     update_readme(version)

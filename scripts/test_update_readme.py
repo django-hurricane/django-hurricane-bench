@@ -28,12 +28,11 @@ class TestUpdateReadme(unittest.TestCase):
         self.assertEqual(bar_zero, "[          ]")
 
     def test_flavor_labels(self):
-        self.assertIn("django-wsgi", FLAVOR_LABELS)
-        self.assertIn("django-wsgi-auto", FLAVOR_LABELS)
         self.assertIn("django-asgi", FLAVOR_LABELS)
         self.assertIn("django-asgi-auto", FLAVOR_LABELS)
         self.assertIn("django-asgi-sync", FLAVOR_LABELS)
         self.assertIn("django-asgi-async", FLAVOR_LABELS)
+        self.assertEqual(FLAVOR_LABELS["django-asgi-sync"], "ASGI (Legacy Sync Views)")
         self.assertEqual(FLAVOR_LABELS["django-asgi-auto"], "ASGI (Worker=Auto / Clean Async)")
         self.assertEqual(FLAVOR_LABELS["django-asgi"], "ASGI (Worker=1 / Clean Async)")
 
@@ -81,8 +80,8 @@ class TestUpdateReadme(unittest.TestCase):
     def test_build_markdown_report_with_scaling_charts(self):
         sample_results = [
             {
-                "flavor": "django-wsgi",
-                "label": "WSGI (Pure Sync)",
+                "flavor": "django-asgi-sync",
+                "label": "ASGI (Legacy Sync Views)",
                 "total_requests": 1500,
                 "failures": 5,
                 "error_rate": 0.33,
@@ -143,7 +142,7 @@ class TestUpdateReadme(unittest.TestCase):
         ]
         markdown = build_markdown_report(sample_results, "2.0.0rc1")
         self.assertIn("Latest Benchmark Results", markdown)
-        self.assertIn("WSGI (Pure Sync)", markdown)
+        self.assertIn("ASGI (Legacy Sync Views)", markdown)
         self.assertIn("ASGI (Worker=1 / Clean Async)", markdown)
         self.assertIn("320.5 req/s", markdown)
         self.assertIn("750.0 req/s", markdown)

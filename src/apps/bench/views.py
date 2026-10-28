@@ -20,8 +20,8 @@ import httpx
 import requests
 from apps.bench.models import Category, Product
 
-IS_WSGI = os.environ.get("HURRICANE_MODE", "").lower() == "wsgi"
 FORCE_SYNC_VIEWS = os.environ.get("FORCE_SYNC_VIEWS", "0").lower() in ("1", "true", "yes")
+IS_WSGI = False
 
 
 def get_product_manager():
@@ -573,17 +573,17 @@ async def gateway_aggregate_async(request):
 def health_check(request):
     return JsonResponse({
         "status": "ok",
-        "wsgi_mode": IS_WSGI,
+        "legacy_sync_views": FORCE_SYNC_VIEWS,
         "async_backend": getattr(settings, "IS_ASYNC_BACKEND", False),
         "timestamp": time.time(),
     })
 
 
 # ---------------------------------------------------------------------------
-# Mode-Aware Route Binding
+# View Route Binding (Legacy Sync Views vs Clean Async Views under Hurricane ASGI)
 # ---------------------------------------------------------------------------
 
-if IS_WSGI or FORCE_SYNC_VIEWS:
+if FORCE_SYNC_VIEWS:
     auth_login = auth_login_sync
     auth_me = auth_me_sync
     catalog_render = catalog_render_sync
